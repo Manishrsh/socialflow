@@ -196,8 +196,9 @@ function resolveExecutionPath(
   const hasReply = !!replyId || !!replyTitle;
 
   const matchedStartNode = findMatchingStartNode(starters, variables);
+  const fallbackStartNode = starters.length === 0 ? nodes[0] : null;
   const startNode =
-    (resumeNodeId && hasReply && nodeById.get(resumeNodeId)) || matchedStartNode || nodes[0];
+    (resumeNodeId && hasReply && nodeById.get(resumeNodeId)) || matchedStartNode || fallbackStartNode;
   if (!startNode) return [];
 
   const path: FlowNode[] = [];
