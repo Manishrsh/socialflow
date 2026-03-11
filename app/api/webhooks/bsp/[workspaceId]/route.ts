@@ -266,14 +266,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               },
             };
 
-            fetch(`${baseUrl}/api/workflows/${wait.workflow_id}/execute`, {
+            await fetch(`${baseUrl}/api/workflows/${wait.workflow_id}/execute`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'x-internal-execution-token': INTERNAL_EXECUTION_TOKEN,
               },
               body: JSON.stringify(resumePayload),
-            }).catch(() => {});
+            });
 
             await sql`DELETE FROM workflow_wait_states WHERE id = ${wait.id}`;
             return NextResponse.json({
@@ -310,29 +310,30 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           }
         });
 
-        for (const wf of candidates) {
-          if (!normalized.phone) continue;
-          const payload = {
-            phone: String(normalized.phone || ''),
-            variables: {
-              message: normalized.message || '',
-              mediaUrl: normalized.mediaUrl || '',
-              buttonReplyId: String(buttonReplyId || ''),
-              buttonReplyTitle: String(buttonReplyTitle || ''),
-            },
-          };
+        const workflowRuns = candidates
+          .filter(() => !!normalized.phone)
+          .map((wf: any) => {
+            const payload = {
+              phone: String(normalized.phone || ''),
+              variables: {
+                message: normalized.message || '',
+                mediaUrl: normalized.mediaUrl || '',
+                buttonReplyId: String(buttonReplyId || ''),
+                buttonReplyTitle: String(buttonReplyTitle || ''),
+              },
+            };
 
-          fetch(`${baseUrl}/api/workflows/${wf.id}/execute`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-internal-execution-token': INTERNAL_EXECUTION_TOKEN,
-            },
-            body: JSON.stringify(payload),
-          }).catch(() => {
-            // Background fire-and-forget; errors are non-blocking for webhook response.
+            return fetch(`${baseUrl}/api/workflows/${wf.id}/execute`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-internal-execution-token': INTERNAL_EXECUTION_TOKEN,
+              },
+              body: JSON.stringify(payload),
+            });
           });
-        }
+
+        await Promise.allSettled(workflowRuns);
       }
     } catch {
       // Non-blocking background trigger.
