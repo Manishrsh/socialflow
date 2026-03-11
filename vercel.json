@@ -5,26 +5,6 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "env": {
-    "DATABASE_URL": {
-      "description": "PostgreSQL connection string from Neon"
-    },
-    "STACK_SECRET_SERVER_KEY": {
-      "description": "Secret key for authentication (minimum 32 characters)"
-    },
-    "N8N_API_URL": {
-      "description": "n8n instance API URL"
-    },
-    "N8N_API_KEY": {
-      "description": "n8n API key"
-    },
-    "N8N_WEBHOOK_URL": {
-      "description": "Your deployment webhook URL"
-    },
-    "NEXT_PUBLIC_BASE_URL": {
-      "description": "Base URL of your application"
-    }
-  },
   "headers": [
     {
       "source": "/api/:path*",
