@@ -206,7 +206,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       `;
     }
 
-    // Background automation trigger for active workflows with triggerMessage node.
+    // Background automation trigger for active workflows with supported inbound trigger nodes.
     try {
       if (INTERNAL_EXECUTION_TOKEN) {
         const baseUrl = request.nextUrl.origin || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
@@ -296,15 +296,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           LIMIT 25
         `;
 
-        const hasTrigger = (nodesValue: any) => {
+        const hasInboundTrigger = (nodesValue: any) => {
           if (!nodesValue) return false;
           const nodesArr = typeof nodesValue === 'string' ? JSON.parse(nodesValue || '[]') : nodesValue;
-          return Array.isArray(nodesArr) && nodesArr.some((n: any) => String(n?.type || '') === 'triggerMessage');
+          return (
+            Array.isArray(nodesArr) &&
+            nodesArr.some((n: any) => {
+              const type = String(n?.type || '').trim();
+              return type === 'triggerMessage' || type === 'triggerKeyword';
+            })
+          );
         };
 
         const candidates = (activeWorkflows || []).filter((wf: any) => {
           try {
-            return hasTrigger(wf.nodes);
+            return hasInboundTrigger(wf.nodes);
           } catch {
             return false;
           }
