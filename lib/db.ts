@@ -221,6 +221,23 @@ export async function ensureCoreSchema(): Promise<void> {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS inbound_event_dedup (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        provider VARCHAR(100) NOT NULL,
+        external_message_id VARCHAR(255) NOT NULL,
+        event_type VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(workspace_id, provider, external_message_id, event_type)
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_inbound_event_dedup_lookup
+      ON inbound_event_dedup(workspace_id, provider, external_message_id, created_at DESC)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS meta_apps (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

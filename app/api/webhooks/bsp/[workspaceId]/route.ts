@@ -109,6 +109,53 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await parseWebhookBody(request);
     const normalized = mapInboundEvent(provider, body);
 
+    if (normalized.externalMessageId) {
+      const dedupRows = await sql`
+        INSERT INTO inbound_event_dedup (id, workspace_id, provider, external_message_id, event_type)
+        VALUES (
+          ${uuidv4()},
+          ${workspaceId},
+          ${normalized.provider},
+          ${String(normalized.externalMessageId)},
+          ${String(normalized.eventType || 'message')}
+        )
+        ON CONFLICT (workspace_id, provider, external_message_id, event_type)
+        DO NOTHING
+        RETURNING id
+      `;
+
+      if (!dedupRows || dedupRows.length === 0) {
+        await sql`
+          INSERT INTO workflow_execution_logs (
+            id, workspace_id, workflow_id, phone, trigger_source, status, executed_nodes, summary, details
+          )
+          SELECT
+            ${uuidv4()},
+            ${workspaceId},
+            w.id,
+            ${String(normalized.phone || '')},
+            ${'webhook'},
+            ${'ignored_duplicate'},
+            ${0},
+            ${'Duplicate webhook ignored'},
+            ${JSON.stringify({
+              provider: normalized.provider,
+              externalMessageId: normalized.externalMessageId,
+              eventType: normalized.eventType,
+            })}
+          FROM workflows w
+          WHERE w.workspace_id = ${workspaceId} AND w.is_active = true
+        `;
+
+        return NextResponse.json({
+          success: true,
+          duplicate: true,
+          provider: normalized.provider,
+          externalMessageId: normalized.externalMessageId,
+        });
+      }
+    }
+
     const eventId = uuidv4();
     await sql`
       INSERT INTO webhook_events (id, workspace_id, provider, event_type, payload)

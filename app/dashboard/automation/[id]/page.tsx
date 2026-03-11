@@ -195,7 +195,9 @@ export default function WorkflowDetailPage() {
               <Card key={item.id} className="p-3 space-y-2">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{item.status}</span>
+                    <span className="text-sm font-semibold">
+                      {item.status === 'ignored_duplicate' ? 'ignored duplicate' : item.status}
+                    </span>
                     <span className="rounded bg-muted px-2 py-0.5 text-xs">{item.trigger_source}</span>
                     <span className="text-xs text-foreground/60">{item.executed_nodes || 0} nodes</span>
                   </div>
