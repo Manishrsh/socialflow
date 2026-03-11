@@ -1,0 +1,109 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { verifySession } from '@/lib/auth';
+import { sql, ensureCoreSchema } from '@/lib/db';
+
+function parseMetadata(metadata: any): Record<string, any> {
+  if (!metadata) return {};
+  if (typeof metadata === 'string') {
+    try {
+      return JSON.parse(metadata);
+    } catch {
+      return {};
+    }
+  }
+  return metadata;
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    await ensureCoreSchema();
+    const cookieStore = await cookies();
+    const token = cookieStore.get('auth-token')?.value;
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const userId = await verifySession(token);
+    if (!userId) {
+      return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const workspaceId = searchParams.get('workspaceId');
+    const q = (searchParams.get('q') || '').trim().toLowerCase();
+    const provider = (searchParams.get('provider') || '').trim().toLowerCase();
+
+    if (!workspaceId) {
+      return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
+    }
+
+    const owned = await sql`
+      SELECT id FROM workspaces WHERE id = ${workspaceId} AND owner_id = ${userId} LIMIT 1
+    `;
+    if (!owned || owned.length === 0) {
+      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+    }
+
+    const rows = await sql`
+      SELECT
+        c.id AS customer_id,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        c.metadata AS customer_metadata,
+        m.id AS message_id,
+        m.content,
+        m.media_url,
+        m.direction,
+        m.type,
+        m.sent_at
+      FROM customers c
+      LEFT JOIN LATERAL (
+        SELECT id, content, media_url, direction, type, sent_at
+        FROM messages
+        WHERE customer_id = c.id
+        ORDER BY sent_at DESC
+        LIMIT 1
+      ) m ON true
+      WHERE c.workspace_id = ${workspaceId}
+      ORDER BY m.sent_at DESC NULLS LAST, c.created_at DESC
+      LIMIT 200
+    `;
+
+    let threads = rows.map((r: any) => {
+      const metadata = parseMetadata(r.customer_metadata);
+      const source = String(metadata.provider || 'unknown').toLowerCase();
+      return {
+        customerId: r.customer_id,
+        name: r.customer_name || 'Unknown',
+        phone: r.customer_phone || '',
+        source,
+        lastMessage: r.content || (r.media_url ? '[Media]' : ''),
+        lastMessageType: r.type || 'text',
+        direction: r.direction || null,
+        lastMessageAt: r.sent_at || null,
+      };
+    });
+
+    if (provider) {
+      threads = threads.filter((t) => t.source === provider);
+    }
+
+    if (q) {
+      threads = threads.filter(
+        (t) =>
+          t.name.toLowerCase().includes(q) ||
+          t.phone.toLowerCase().includes(q) ||
+          t.lastMessage.toLowerCase().includes(q)
+      );
+    }
+
+    return NextResponse.json({ success: true, threads });
+  } catch (error: any) {
+    console.error('Threads fetch error:', error);
+    return NextResponse.json(
+      { success: false, error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}

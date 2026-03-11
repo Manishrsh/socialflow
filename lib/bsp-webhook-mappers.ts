@@ -1,0 +1,194 @@
+export interface NormalizedInboundEvent {
+  provider: string;
+  eventType: string;
+  phone?: string;
+  message?: string;
+  mediaUrl?: string;
+  externalMessageId?: string;
+  raw: any;
+}
+
+function normalizePhone(value: unknown): string | undefined {
+  const input = String(value || '').trim();
+  if (!input) return undefined;
+  const cleaned = input
+    .replace(/^whatsapp:/i, '')
+    .replace(/[^\d+]/g, '')
+    .replace(/^\+/, '');
+  return cleaned || undefined;
+}
+
+function pickFirst(...vals: any[]): any {
+  for (const v of vals) {
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return undefined;
+}
+
+function mapGupshup(body: any): Partial<NormalizedInboundEvent> {
+  const payload = body?.payload || body;
+  const sender = payload?.sender || {};
+  const message = payload?.payload || payload?.message || {};
+
+  const phone = normalizePhone(
+    pickFirst(sender?.phone, payload?.sender?.phone, body?.phone, body?.from)
+  );
+
+  const messageText = pickFirst(
+    message?.text,
+    payload?.text,
+    body?.text,
+    body?.message
+  );
+
+  const mediaUrl = pickFirst(
+    message?.url,
+    message?.media?.url,
+    payload?.media?.url,
+    body?.mediaUrl
+  );
+
+  return {
+    eventType: String(pickFirst(body?.type, body?.event, payload?.type) || 'message'),
+    phone,
+    message: messageText ? String(messageText) : undefined,
+    mediaUrl: mediaUrl ? String(mediaUrl) : undefined,
+    externalMessageId: pickFirst(payload?.id, body?.messageId, body?.gsId),
+  };
+}
+
+function mapTwilio(body: any): Partial<NormalizedInboundEvent> {
+  // Twilio sends x-www-form-urlencoded by default.
+  const phone = normalizePhone(pickFirst(body?.WaId, body?.From, body?.from));
+  const message = pickFirst(body?.Body, body?.body, body?.Message);
+  const mediaUrl = pickFirst(body?.MediaUrl0, body?.mediaUrl, body?.NumMedia > 0 ? body?.MediaUrl0 : undefined);
+
+  return {
+    eventType: 'message',
+    phone,
+    message: message ? String(message) : undefined,
+    mediaUrl: mediaUrl ? String(mediaUrl) : undefined,
+    externalMessageId: pickFirst(body?.MessageSid, body?.SmsSid),
+  };
+}
+
+function map360dialog(body: any): Partial<NormalizedInboundEvent> {
+  const value = body?.entry?.[0]?.changes?.[0]?.value || body?.value || {};
+  const msg = value?.messages?.[0] || {};
+  const contact = value?.contacts?.[0] || {};
+
+  const phone = normalizePhone(pickFirst(msg?.from, contact?.wa_id, body?.from));
+  const message = pickFirst(
+    msg?.text?.body,
+    msg?.button?.text,
+    msg?.interactive?.button_reply?.title,
+    msg?.interactive?.list_reply?.title
+  );
+  const mediaUrl = pickFirst(
+    msg?.image?.link,
+    msg?.video?.link,
+    msg?.document?.link,
+    msg?.audio?.link,
+    msg?.sticker?.link
+  );
+
+  return {
+    eventType: String(pickFirst(msg?.type, body?.event, 'message')),
+    phone,
+    message: message ? String(message) : undefined,
+    mediaUrl: mediaUrl ? String(mediaUrl) : undefined,
+    externalMessageId: pickFirst(msg?.id, body?.messageId),
+  };
+}
+
+function mapInstagram(body: any): Partial<NormalizedInboundEvent> {
+  // Meta Instagram Messaging webhooks are similar to WhatsApp Cloud webhooks.
+  const value = body?.entry?.[0]?.changes?.[0]?.value || {};
+  const msg = value?.messages?.[0] || {};
+  const contact = value?.contacts?.[0] || {};
+
+  const phone = normalizePhone(
+    pickFirst(msg?.from, contact?.wa_id, body?.from, body?.sender?.id)
+  );
+  const message = pickFirst(
+    msg?.text?.body,
+    msg?.button?.text,
+    msg?.interactive?.button_reply?.title,
+    body?.message?.text,
+    body?.message
+  );
+  const mediaUrl = pickFirst(
+    msg?.image?.link,
+    msg?.video?.link,
+    msg?.audio?.link,
+    msg?.document?.link,
+    body?.attachments?.[0]?.payload?.url
+  );
+
+  return {
+    eventType: String(pickFirst(msg?.type, body?.object, body?.event, 'message')),
+    phone,
+    message: message ? String(message) : undefined,
+    mediaUrl: mediaUrl ? String(mediaUrl) : undefined,
+    externalMessageId: pickFirst(msg?.id, body?.mid, body?.messageId),
+  };
+}
+
+function mapGeneric(body: any): Partial<NormalizedInboundEvent> {
+  return {
+    eventType: String(pickFirst(body?.event, body?.type, body?.eventType, 'message')),
+    phone: normalizePhone(
+      pickFirst(
+        body?.phone,
+        body?.from,
+        body?.sender,
+        body?.contact?.phone,
+        body?.data?.phone,
+        body?.data?.from
+      )
+    ),
+    message: pickFirst(body?.message, body?.text, body?.body, body?.data?.message, body?.data?.text),
+    mediaUrl: pickFirst(
+      body?.mediaUrl,
+      body?.media_url,
+      body?.image,
+      body?.video,
+      body?.document,
+      body?.data?.mediaUrl
+    ),
+    externalMessageId: pickFirst(body?.messageId, body?.id),
+  };
+}
+
+export function mapInboundEvent(providerInput: string, body: any): NormalizedInboundEvent {
+  const provider = String(providerInput || 'generic').toLowerCase();
+  let mapped: Partial<NormalizedInboundEvent>;
+
+  switch (provider) {
+    case 'gupshup':
+      mapped = mapGupshup(body);
+      break;
+    case 'twilio':
+      mapped = mapTwilio(body);
+      break;
+    case '360dialog':
+      mapped = map360dialog(body);
+      break;
+    case 'instagram':
+      mapped = mapInstagram(body);
+      break;
+    default:
+      mapped = mapGeneric(body);
+      break;
+  }
+
+  return {
+    provider,
+    eventType: mapped.eventType || 'message',
+    phone: mapped.phone,
+    message: mapped.message ? String(mapped.message) : undefined,
+    mediaUrl: mapped.mediaUrl ? String(mapped.mediaUrl) : undefined,
+    externalMessageId: mapped.externalMessageId ? String(mapped.externalMessageId) : undefined,
+    raw: body,
+  };
+}

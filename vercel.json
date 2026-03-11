@@ -1,0 +1,50 @@
+{
+  "name": "warechat-pro",
+  "version": 2,
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "env": {
+    "DATABASE_URL": {
+      "description": "PostgreSQL connection string from Neon"
+    },
+    "STACK_SECRET_SERVER_KEY": {
+      "description": "Secret key for authentication (minimum 32 characters)"
+    },
+    "N8N_API_URL": {
+      "description": "n8n instance API URL"
+    },
+    "N8N_API_KEY": {
+      "description": "n8n API key"
+    },
+    "N8N_WEBHOOK_URL": {
+      "description": "Your deployment webhook URL"
+    },
+    "NEXT_PUBLIC_BASE_URL": {
+      "description": "Base URL of your application"
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, s-maxage=3600"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/docs",
+      "destination": "https://docs.warechat.com",
+      "permanent": false
+    }
+  ]
+}
