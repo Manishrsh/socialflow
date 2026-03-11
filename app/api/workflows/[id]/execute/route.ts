@@ -90,6 +90,28 @@ function getIncomingText(variables: Record<string, any> | undefined): string {
     .toLowerCase();
 }
 
+function conditionNodeMatches(node: FlowNode, variables: Record<string, any> | undefined): boolean {
+  const rawCondition = String(node.data?.condition || '').trim();
+  if (!rawCondition) return false;
+
+  const incomingText = getIncomingText(variables);
+  if (!incomingText) return false;
+
+  const normalizedCondition = rawCondition.toLowerCase();
+  const containsMatch = normalizedCondition.match(/^message\.contains\((['"])(.*?)\1\)$/i);
+  if (containsMatch) {
+    const needle = String(containsMatch[2] || '').trim().toLowerCase();
+    return needle ? incomingText.includes(needle) : false;
+  }
+
+  const equalsMatch = normalizedCondition.match(/^message\s*==\s*(['"])(.*?)\1$/i);
+  if (equalsMatch) {
+    return incomingText === String(equalsMatch[2] || '').trim().toLowerCase();
+  }
+
+  return incomingText.includes(normalizedCondition);
+}
+
 function keywordNodeMatches(node: FlowNode, variables: Record<string, any> | undefined): boolean {
   const keywords = normalizeKeywords(node.data || {});
   if (keywords.length === 0) return false;
@@ -214,6 +236,9 @@ function resolveExecutionPath(
     const node = nodeById.get(currentId);
     if (!node) break;
     if (node.type === 'triggerKeyword' && !keywordNodeMatches(node, variables)) {
+      return [];
+    }
+    if (node.type === 'logicCondition' && !conditionNodeMatches(node, variables)) {
       return [];
     }
     if (node.type === 'actionSendMessage') {
