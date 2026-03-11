@@ -79,11 +79,8 @@ function normalizeKeywords(data: Record<string, any> | undefined): string[] {
   return singleKeyword ? [singleKeyword] : [];
 }
 
-function findMatchingStartNode(
-  starters: FlowNode[],
-  variables: Record<string, any> | undefined
-): FlowNode | null {
-  const incomingText = String(
+function getIncomingText(variables: Record<string, any> | undefined): string {
+  return String(
     variables?.message ||
     variables?.buttonReplyTitle ||
     variables?.buttonTitle ||
@@ -91,13 +88,25 @@ function findMatchingStartNode(
   )
     .trim()
     .toLowerCase();
+}
+
+function keywordNodeMatches(node: FlowNode, variables: Record<string, any> | undefined): boolean {
+  const keywords = normalizeKeywords(node.data || {});
+  if (keywords.length === 0) return false;
+  const incomingText = getIncomingText(variables);
+  if (!incomingText) return false;
+  return keywords.some((keyword) => incomingText.includes(keyword));
+}
+
+function findMatchingStartNode(
+  starters: FlowNode[],
+  variables: Record<string, any> | undefined
+): FlowNode | null {
   const keywordStarters = starters.filter((node) => node.type === 'triggerKeyword');
 
   if (keywordStarters.length > 0) {
     for (const node of keywordStarters) {
-      const keywords = normalizeKeywords(node.data || {});
-      if (!keywords.length) continue;
-      if (incomingText && keywords.some((keyword) => incomingText.includes(keyword))) {
+      if (keywordNodeMatches(node, variables)) {
         return node;
       }
     }
@@ -203,6 +212,9 @@ function resolveExecutionPath(
 
     const node = nodeById.get(currentId);
     if (!node) break;
+    if (node.type === 'triggerKeyword' && !keywordNodeMatches(node, variables)) {
+      return [];
+    }
     if (node.type === 'actionSendMessage') {
       const data = node.data || {};
       const messageType = String(data.messageType || '').trim().toLowerCase();
