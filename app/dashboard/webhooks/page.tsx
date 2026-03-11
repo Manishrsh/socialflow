@@ -7,7 +7,14 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url, { cache: 'no-store' });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || 'Failed to load webhook events');
+  }
+  return data;
+};
 
 export default function WebhookHistoryPage() {
   const { workspace } = useAuth();
@@ -20,7 +27,7 @@ export default function WebhookHistoryPage() {
       )}&page=${page}&limit=20`
     : null;
 
-  const { data, isLoading, mutate } = useSWR(query, fetcher);
+  const { data, error, isLoading, mutate } = useSWR(query, fetcher);
   const events = data?.events || [];
   const total = Number(data?.total || 0);
   const totalPages = Math.max(1, Math.ceil(total / 20));
@@ -53,6 +60,10 @@ export default function WebhookHistoryPage() {
 
       {isLoading ? (
         <Card className="p-8 text-center text-foreground/60">Loading events...</Card>
+      ) : error ? (
+        <Card className="p-8 text-center text-red-600">
+          {String(error.message || error)}
+        </Card>
       ) : events.length === 0 ? (
         <Card className="p-8 text-center text-foreground/60">No webhook events found.</Card>
       ) : (
