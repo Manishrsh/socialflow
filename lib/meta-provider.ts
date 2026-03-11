@@ -25,6 +25,10 @@ function nonEmpty(value: any): string {
   return String(value || '').trim();
 }
 
+function clamp(value: any, max: number): string {
+  return nonEmpty(value).slice(0, max);
+}
+
 async function loadWorkspaceMetaCredentials(workspaceId: string): Promise<Partial<MetaCredentials>> {
   await ensureCoreSchema();
   const rows = await sql`
@@ -70,7 +74,7 @@ function normalizeButtons(payload?: Record<string, any>): Array<{ id: string; ti
   return buttons
     .filter((b: any) => b && nonEmpty(b.id) && nonEmpty(b.title))
     .slice(0, 10)
-    .map((b: any) => ({ id: String(b.id), title: String(b.title).slice(0, 24) }));
+    .map((b: any) => ({ id: clamp(b.id, 256), title: clamp(b.title, 20) }));
 }
 
 function parseJsonArray(value: any): any[] {
@@ -83,6 +87,17 @@ function parseJsonArray(value: any): any[] {
   } catch {
     return [];
   }
+}
+
+function normalizeListRows(value: any): Array<{ id: string; title: string; description?: string }> {
+  return parseJsonArray(value)
+    .map((row: any, idx: number) => ({
+      id: clamp(row?.id || idx + 1, 200),
+      title: clamp(row?.title || `Option ${idx + 1}`, 24),
+      ...(nonEmpty(row?.description) ? { description: clamp(row.description, 72) } : {}),
+    }))
+    .filter((row) => row.id && row.title)
+    .slice(0, 10);
 }
 
 export async function sendViaMeta(input: MetaSendInput): Promise<{ success: boolean; messageId?: string; error?: string }> {
@@ -101,6 +116,7 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
       const buttons = normalizeButtons(input.payload);
       const messageType = nonEmpty(input.messageType || 'text').toLowerCase();
       const text = nonEmpty(input.message);
+      const interactiveBodyText = clamp(text || 'Select an option', 1024);
       const mediaId = nonEmpty(input.payload?.mediaId);
       const mediaLink = nonEmpty(input.mediaUrl);
       const templateName = nonEmpty(input.payload?.templateName);
@@ -160,13 +176,19 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
             type: 'interactive',
             interactive: {
               type: 'list',
-              body: { text: text || 'Select an option' },
+              body: { text: interactiveBodyText },
+              ...(nonEmpty(input.payload?.header)
+                ? { header: { type: 'text', text: clamp(input.payload?.header, 60) } }
+                : {}),
+              ...(nonEmpty(input.payload?.footer)
+                ? { footer: { text: clamp(input.payload?.footer, 60) } }
+                : {}),
               action: {
-                button: nonEmpty(input.payload?.listButtonText || 'Choose'),
+                button: clamp(input.payload?.listButtonText || 'Choose', 20),
                 sections: [
                   {
-                    title: nonEmpty(input.payload?.listSectionTitle || 'Options'),
-                    rows: buttons.map((b) => ({ id: b.id, title: b.title })),
+                    title: clamp(input.payload?.listSectionTitle || 'Options', 24),
+                    rows: buttons.map((b) => ({ id: clamp(b.id, 200), title: clamp(b.title, 24) })),
                   },
                 ],
               },
@@ -178,35 +200,35 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
           type: 'interactive',
           interactive: {
             type: 'button',
-            body: { text: text || 'Please choose an option' },
-            ...(nonEmpty(input.payload?.header) ? { header: { type: 'text', text: String(input.payload?.header) } } : {}),
-            ...(nonEmpty(input.payload?.footer) ? { footer: { text: String(input.payload?.footer) } } : {}),
+            body: { text: clamp(text || 'Please choose an option', 1024) },
+            ...(nonEmpty(input.payload?.header) ? { header: { type: 'text', text: clamp(input.payload?.header, 60) } } : {}),
+            ...(nonEmpty(input.payload?.footer) ? { footer: { text: clamp(input.payload?.footer, 60) } } : {}),
             action: {
               buttons: buttons.slice(0, 3).map((b) => ({
                 type: 'reply',
-                reply: { id: b.id, title: b.title },
+                reply: { id: clamp(b.id, 256), title: clamp(b.title, 20) },
               })),
             },
           },
         };
         }
       } else if (messageType === 'interactive_list') {
-        const rowsFromJson = parseJsonArray(input.payload?.listRowsJson);
+        const rowsFromJson = normalizeListRows(input.payload?.listRowsJson);
         const rows = rowsFromJson.length
           ? rowsFromJson
           : [
               {
-                id: nonEmpty(input.payload?.listRow1Id || '1'),
-                title: nonEmpty(input.payload?.listRow1Title || 'Item 1'),
+                id: clamp(input.payload?.listRow1Id || '1', 200),
+                title: clamp(input.payload?.listRow1Title || 'Item 1', 24),
                 ...(nonEmpty(input.payload?.listRow1Description)
-                  ? { description: nonEmpty(input.payload?.listRow1Description) }
+                  ? { description: clamp(input.payload?.listRow1Description, 72) }
                   : {}),
               },
               {
-                id: nonEmpty(input.payload?.listRow2Id || ''),
-                title: nonEmpty(input.payload?.listRow2Title || ''),
+                id: clamp(input.payload?.listRow2Id || '', 200),
+                title: clamp(input.payload?.listRow2Title || '', 24),
                 ...(nonEmpty(input.payload?.listRow2Description)
-                  ? { description: nonEmpty(input.payload?.listRow2Description) }
+                  ? { description: clamp(input.payload?.listRow2Description, 72) }
                   : {}),
               },
             ].filter((r) => nonEmpty(r.id) && nonEmpty(r.title));
@@ -216,12 +238,18 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
           type: 'interactive',
           interactive: {
             type: 'list',
-            body: { text: text || 'Select an item' },
+            body: { text: clamp(text || 'Select an item', 1024) },
+            ...(nonEmpty(input.payload?.header)
+              ? { header: { type: 'text', text: clamp(input.payload?.header, 60) } }
+              : {}),
+            ...(nonEmpty(input.payload?.footer)
+              ? { footer: { text: clamp(input.payload?.footer, 60) } }
+              : {}),
             action: {
-              button: nonEmpty(input.payload?.listButtonText || 'Select'),
+              button: clamp(input.payload?.listButtonText || 'Select', 20),
               sections: [
                 {
-                  title: nonEmpty(input.payload?.listSectionTitle || 'Menu'),
+                  title: clamp(input.payload?.listSectionTitle || 'Menu', 24),
                   rows,
                 },
               ],
