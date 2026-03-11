@@ -210,6 +210,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     try {
       if (INTERNAL_EXECUTION_TOKEN) {
         const baseUrl = request.nextUrl.origin || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        const normalizedEventType = String(normalized.eventType || '').trim().toLowerCase();
         const buttonReplyId =
           (normalized.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive?.button_reply?.id) ||
           (normalized.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive?.list_reply?.id) ||
@@ -223,6 +224,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           (normalized.raw?.list_reply?.title) ||
           '';
         const hasReplySignal = !!String(buttonReplyId || '').trim() || !!String(buttonReplyTitle || '').trim();
+        const hasInboundMessageSignal =
+          !!String(normalized.message || '').trim() ||
+          !!String(normalized.mediaUrl || '').trim() ||
+          hasReplySignal;
+        const isStatusOnlyEvent = ['sent', 'delivered', 'read', 'failed'].includes(normalizedEventType);
+
+        if (!hasInboundMessageSignal || isStatusOnlyEvent) {
+          return NextResponse.json({
+            success: true,
+            eventId,
+            customerId,
+            messageId,
+            provider: normalized.provider,
+            normalized,
+            ignored: 'status_or_empty_event',
+          });
+        }
 
         if (hasReplySignal && normalized.phone) {
           const waits = await sql`
