@@ -75,7 +75,17 @@ export default function WorkflowDetailPage() {
     }
   };
 
-  const handleSave = async (nodes: Node[], edges: Edge[]) => {
+  const handleSave = async ({
+    name,
+    description,
+    nodes,
+    edges,
+  }: {
+    name: string;
+    description: string;
+    nodes: Node[];
+    edges: Edge[];
+  }) => {
     if (!workflow) return;
 
     try {
@@ -83,8 +93,8 @@ export default function WorkflowDetailPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: workflow.name,
-          description: workflow.description,
+          name,
+          description,
           nodes,
           edges,
         }),
@@ -172,6 +182,8 @@ export default function WorkflowDetailPage() {
           workflowId={workflowId}
           initialNodes={workflow.nodes}
           initialEdges={workflow.edges}
+          initialName={workflow.name}
+          initialDescription={workflow.description || ''}
           onSave={handleSave}
         />
       </div>

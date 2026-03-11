@@ -11,7 +11,17 @@ export default function WorkflowBuilderPage() {
   const { workspace } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = async (nodes: Node[], edges: Edge[]) => {
+  const handleSave = async ({
+    name,
+    description,
+    nodes,
+    edges,
+  }: {
+    name: string;
+    description: string;
+    nodes: Node[];
+    edges: Edge[];
+  }) => {
     if (!workspace) {
       alert('Workspace not found. Please logout/login and try again.');
       return;
@@ -23,8 +33,8 @@ export default function WorkflowBuilderPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: 'New Workflow',
-          description: 'Created automation workflow',
+          name: name || 'New Workflow',
+          description: description || 'Created automation workflow',
           workspaceId: workspace.id,
           nodes,
           edges,
@@ -51,6 +61,8 @@ export default function WorkflowBuilderPage() {
       onSave={handleSave}
       initialNodes={[]}
       initialEdges={[]}
+      initialName="New Workflow"
+      initialDescription="Created automation workflow"
     />
   );
 }

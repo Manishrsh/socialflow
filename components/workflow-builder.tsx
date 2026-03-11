@@ -41,7 +41,14 @@ interface WorkflowBuilderProps {
   workflowId?: string;
   initialNodes?: Node[];
   initialEdges?: Edge[];
-  onSave?: (nodes: Node[], edges: Edge[]) => Promise<void>;
+  initialName?: string;
+  initialDescription?: string;
+  onSave?: (payload: {
+    name: string;
+    description: string;
+    nodes: Node[];
+    edges: Edge[];
+  }) => Promise<void>;
 }
 
 interface MediaLibraryItem {
@@ -101,6 +108,8 @@ function WorkflowBuilderContent({
   workflowId,
   initialNodes = [],
   initialEdges = [],
+  initialName = 'Untitled Workflow',
+  initialDescription = '',
   onSave,
 }: WorkflowBuilderProps) {
   const { workspace } = useAuth();
@@ -110,8 +119,8 @@ function WorkflowBuilderContent({
   const onNodesChange = useCallback((changes: any[]) => {
     setNodes((nds) => applyNodeChanges(changes, nds));
   }, [setNodes]);
-  const [workflowName, setWorkflowName] = useState('Untitled Workflow');
-  const [workflowDescription, setWorkflowDescription] = useState('');
+  const [workflowName, setWorkflowName] = useState(initialName);
+  const [workflowDescription, setWorkflowDescription] = useState(initialDescription);
   const [expandedSections, setExpandedSections] = useState({
     triggers: true,
     actions: true,
@@ -129,6 +138,14 @@ function WorkflowBuilderContent({
   const edgeTypes = {
     deletable: DeletableEdge,
   };
+
+  useEffect(() => {
+    setWorkflowName(initialName);
+  }, [initialName]);
+
+  useEffect(() => {
+    setWorkflowDescription(initialDescription);
+  }, [initialDescription]);
 
   useEffect(() => {
     const selectedNode = nodes.find((n) => n.id === selectedNodeId);
@@ -322,7 +339,12 @@ function WorkflowBuilderContent({
 
     setIsSaving(true);
     try {
-      await onSave(nodes, edges);
+      await onSave({
+        name: workflowName,
+        description: workflowDescription,
+        nodes,
+        edges,
+      });
     } finally {
       setIsSaving(false);
     }
