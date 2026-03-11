@@ -68,6 +68,48 @@ function toArray(value: any): any[] {
   return [];
 }
 
+function normalizeKeywords(data: Record<string, any> | undefined): string[] {
+  const keywordList = Array.isArray(data?.keywords) ? data?.keywords : [];
+  const normalizedList = keywordList
+    .map((item: any) => String(item || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (normalizedList.length > 0) return normalizedList;
+
+  const singleKeyword = String(data?.keyword || '').trim().toLowerCase();
+  return singleKeyword ? [singleKeyword] : [];
+}
+
+function findMatchingStartNode(
+  starters: FlowNode[],
+  variables: Record<string, any> | undefined
+): FlowNode | null {
+  const incomingText = String(
+    variables?.message ||
+    variables?.buttonReplyTitle ||
+    variables?.buttonTitle ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+
+  for (const node of starters) {
+    if (node.type === 'triggerKeyword') {
+      const keywords = normalizeKeywords(node.data || {});
+      if (!keywords.length) continue;
+      if (incomingText && keywords.some((keyword) => incomingText.includes(keyword))) {
+        return node;
+      }
+      continue;
+    }
+
+    if (node.type === 'triggerMessage') {
+      return node;
+    }
+  }
+
+  return starters[0] || null;
+}
+
 function resolveExecutionOrder(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] {
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const outgoing = new Map<string, string[]>();
@@ -140,8 +182,9 @@ function resolveExecutionPath(
   const replyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim();
   const hasReply = !!replyId || !!replyTitle;
 
+  const matchedStartNode = findMatchingStartNode(starters, variables);
   const startNode =
-    (resumeNodeId && hasReply && nodeById.get(resumeNodeId)) || starters[0] || nodes[0];
+    (resumeNodeId && hasReply && nodeById.get(resumeNodeId)) || matchedStartNode || nodes[0];
   if (!startNode) return [];
 
   const path: FlowNode[] = [];

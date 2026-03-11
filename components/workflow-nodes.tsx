@@ -40,6 +40,19 @@ function normalizeNodeButtons(data: Record<string, any>): Array<{ id: string; ti
   return fallback.filter((b) => b.id && b.title);
 }
 
+function normalizeKeywords(data: Record<string, any>): string[] {
+  const fromArray = Array.isArray(data?.keywords)
+    ? data.keywords
+        .map((item: any) => String(item || '').trim())
+        .filter(Boolean)
+    : [];
+
+  if (fromArray.length > 0) return fromArray;
+
+  const singleKeyword = String(data?.keyword || '').trim();
+  return singleKeyword ? [singleKeyword] : [];
+}
+
 export function CustomNode({
   id,
   data,
@@ -49,6 +62,7 @@ export function CustomNode({
   const template = type ? getNodeTemplate(type) : null;
   const onDelete = data.onDelete;
   const messageType = String(data?.messageType || '').trim().toLowerCase();
+  const keywordList = type === 'triggerKeyword' ? normalizeKeywords(data) : [];
   const buttonOptions =
     type === 'actionSendMessage' &&
     (messageType === 'interactive_button' || messageType === '' || messageType === 'interactive_list')
@@ -91,6 +105,11 @@ export function CustomNode({
             {type === 'actionSendMessage' && buttonOptions.length > 0 && (
               <div>
                 Options: {buttonOptions.length}
+              </div>
+            )}
+            {type === 'triggerKeyword' && keywordList.length > 0 && (
+              <div>
+                Keywords: {keywordList.join(', ')}
               </div>
             )}
             {template?.config?.map((field: NodeConfigField) => {

@@ -80,7 +80,7 @@ export const TRIGGER_NODES = [
   {
     type: NODE_TYPES.TRIGGER_KEYWORD,
     label: 'Keyword Match',
-    description: 'Trigger when message contains a specific keyword',
+    description: 'Trigger when message contains one of the configured keywords',
     category: 'Triggers',
     icon: '🔑',
     color: 'from-blue-500 to-cyan-600',
@@ -90,7 +90,7 @@ export const TRIGGER_NODES = [
         label: 'Keyword',
         type: 'text',
         placeholder: 'Enter keyword to match',
-        required: true,
+        required: false,
       },
     ],
   },

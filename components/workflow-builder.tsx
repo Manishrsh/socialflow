@@ -232,6 +232,39 @@ function WorkflowBuilderContent({
     updateMessageButtons(nodeId, next);
   };
 
+  const getKeywordList = (nodeId: string): string[] => {
+    const selectedNode = nodes.find((n) => n.id === nodeId);
+    const keywords = Array.isArray(selectedNode?.data?.keywords)
+      ? selectedNode.data.keywords
+      : [];
+    if (keywords.length > 0) {
+      return keywords.map((item: any) => String(item || ''));
+    }
+    const singleKeyword = String(selectedNode?.data?.keyword || '').trim();
+    return singleKeyword ? [singleKeyword] : [];
+  };
+
+  const updateKeywordList = (nodeId: string, keywords: string[]) => {
+    updateNodeData(nodeId, 'keywords', keywords);
+    updateNodeData(nodeId, 'keyword', keywords[0] || '');
+  };
+
+  const addKeyword = (nodeId: string) => {
+    const keywords = getKeywordList(nodeId);
+    updateKeywordList(nodeId, [...keywords, '']);
+  };
+
+  const updateKeyword = (nodeId: string, index: number, value: string) => {
+    const keywords = getKeywordList(nodeId);
+    const next = keywords.map((item, itemIndex) => (itemIndex === index ? value : item));
+    updateKeywordList(nodeId, next);
+  };
+
+  const removeKeyword = (nodeId: string, index: number) => {
+    const keywords = getKeywordList(nodeId);
+    updateKeywordList(nodeId, keywords.filter((_, itemIndex) => itemIndex !== index));
+  };
+
   const addNode = (template: any) => {
     const newNode: Node = {
       id: uuidv4(),
@@ -913,6 +946,55 @@ function WorkflowBuilderContent({
                         onChange={(e) => updateNodeData(selectedNodeId, 'caption', e.target.value)}
                         rows={3}
                       />
+                    </div>
+                  </div>
+                );
+              }
+
+              if (selectedNode?.type === 'triggerKeyword') {
+                const keywords = getKeywordList(selectedNodeId);
+                return (
+                  <div className="space-y-4">
+                    <div className="text-xs text-foreground/60">
+                      Workflow runs only when the incoming message contains one of these keywords.
+                    </div>
+
+                    <div className="space-y-2 rounded-lg border p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium">Keywords</div>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-muted"
+                          onClick={() => addKeyword(selectedNodeId)}
+                        >
+                          Add Keyword
+                        </button>
+                      </div>
+
+                      {keywords.length === 0 ? (
+                        <div className="text-xs text-foreground/60">No keywords yet.</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {keywords.map((keyword, index) => (
+                            <div key={`${selectedNodeId}-keyword-${index}`} className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                placeholder={`Keyword ${index + 1}`}
+                                value={keyword}
+                                onChange={(e) => updateKeyword(selectedNodeId, index, e.target.value)}
+                              />
+                              <button
+                                type="button"
+                                className="rounded-lg border border-border px-3 py-2 text-xs hover:bg-muted"
+                                onClick={() => removeKeyword(selectedNodeId, index)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
