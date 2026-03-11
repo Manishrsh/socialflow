@@ -13,6 +13,10 @@ import ReactFlow, {
   useEdgesState,
   ReactFlowProvider,
   NodeMouseHandler,
+  BaseEdge,
+  EdgeLabelRenderer,
+  EdgeProps,
+  getBezierPath,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { nodeTypes } from './workflow-nodes';
@@ -30,7 +34,7 @@ import {
   NodeConfigField,
 } from '@/lib/workflow-nodes';
 import { v4 as uuidv4 } from 'uuid';
-import { ChevronDown, ChevronUp, Save, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Save, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 
 interface WorkflowBuilderProps {
@@ -47,6 +51,50 @@ interface MediaLibraryItem {
   file_type: string;
   file_size: number;
   url: string;
+}
+
+function DeletableEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+  data,
+}: EdgeProps) {
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <EdgeLabelRenderer>
+        <button
+          type="button"
+          className="nodrag nopan flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition-opacity hover:bg-destructive hover:text-destructive-foreground"
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            pointerEvents: 'all',
+          }}
+          onClick={() => data?.onDelete?.(id)}
+          aria-label="Delete connection"
+          title="Unlink"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </EdgeLabelRenderer>
+    </>
+  );
 }
 
 function WorkflowBuilderContent({
@@ -78,6 +126,9 @@ function WorkflowBuilderContent({
   const [isMediaLoading, setIsMediaLoading] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+  const edgeTypes = {
+    deletable: DeletableEdge,
+  };
 
   useEffect(() => {
     const selectedNode = nodes.find((n) => n.id === selectedNodeId);
@@ -204,6 +255,10 @@ function WorkflowBuilderContent({
     setSelectedNodeId((prev) => (prev === nodeId ? null : prev));
   };
 
+  const deleteEdge = useCallback((edgeId: string) => {
+    setEdges((eds) => eds.filter((edge) => edge.id !== edgeId));
+  }, [setEdges]);
+
   const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
     if (linkSourceNodeId && linkSourceNodeId !== node.id) {
       const edgeExists = edges.some(
@@ -217,6 +272,7 @@ function WorkflowBuilderContent({
             source: linkSourceNodeId,
             target: node.id,
             animated: true,
+            type: 'deletable',
           },
         ]);
       }
@@ -344,11 +400,19 @@ function WorkflowBuilderContent({
                 onDelete: deleteNode,
               },
             }))}
-            edges={edges}
+            edges={edges.map((edge) => ({
+              ...edge,
+              type: edge.type || 'deletable',
+              data: {
+                ...edge.data,
+                onDelete: deleteEdge,
+              },
+            }))}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             onInit={setReactFlowInstance}
             onNodeClick={onNodeClick}
             onPaneClick={() => setSelectedNodeId(null)}
