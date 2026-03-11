@@ -162,7 +162,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Background automation trigger for active workflows with triggerMessage node.
     try {
       if (INTERNAL_EXECUTION_TOKEN) {
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        const baseUrl = request.nextUrl.origin || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
         const buttonReplyId =
           (normalized.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive?.button_reply?.id) ||
           (normalized.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive?.list_reply?.id) ||

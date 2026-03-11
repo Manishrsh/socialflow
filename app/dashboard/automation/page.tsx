@@ -20,7 +20,14 @@ interface Workflow {
   edges: any[];
 }
 
-const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then((res) => res.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url, { cache: 'no-store' });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || 'Failed to load workflows');
+  }
+  return data;
+};
 
 export default function AutomationPage() {
   const { workspace } = useAuth();
@@ -28,7 +35,11 @@ export default function AutomationPage() {
   
   const { data, isLoading, error } = useSWR(
     workspace ? `/api/workflows/list?workspaceId=${workspace.id}` : null,
-    fetcher
+    fetcher,
+    {
+      refreshInterval: 5000,
+      revalidateOnFocus: true,
+    }
   );
 
   const workflows: Workflow[] = data?.workflows || [];
@@ -65,6 +76,10 @@ export default function AutomationPage() {
         <div className="flex items-center justify-center py-12">
           <div className="text-foreground/60">Loading workflows...</div>
         </div>
+      ) : error ? (
+        <Card className="p-12 text-center text-destructive">
+          {error instanceof Error ? error.message : 'Failed to load workflows'}
+        </Card>
       ) : filteredWorkflows.length === 0 ? (
         <Card className="p-12 text-center">
           <Zap className="w-12 h-12 text-foreground/20 mx-auto mb-4" />

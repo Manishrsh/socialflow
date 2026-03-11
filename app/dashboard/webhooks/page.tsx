@@ -27,7 +27,10 @@ export default function WebhookHistoryPage() {
       )}&page=${page}&limit=20`
     : null;
 
-  const { data, error, isLoading, mutate } = useSWR(query, fetcher);
+  const { data, error, isLoading, mutate } = useSWR(query, fetcher, {
+    refreshInterval: 5000,
+    revalidateOnFocus: true,
+  });
   const events = data?.events || [];
   const total = Number(data?.total || 0);
   const totalPages = Math.max(1, Math.ceil(total / 20));

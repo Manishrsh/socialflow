@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { sql } from '@/lib/db';
+import { ensureCoreSchema, sql } from '@/lib/db';
 import { verifySession } from '@/lib/auth';
 import { randomUUID } from 'crypto';
 import {
@@ -225,7 +225,9 @@ function isLikelyMetaMediaId(value: any): boolean {
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
+  let executionLogId: string | null = null;
   try {
+    await ensureCoreSchema();
     const internalToken = request.headers.get('x-internal-execution-token') || '';
     const internalEnabled =
       !!process.env.INTERNAL_EXECUTION_TOKEN &&
@@ -279,6 +281,28 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const allNodeTypes = orderedNodes.map((n) => n.type || '');
     const actionNodeTypes = allNodeTypes.filter((t) => t.startsWith('action'));
     const log: Array<Record<string, any>> = [];
+    executionLogId = randomUUID();
+
+    await sql`
+      INSERT INTO workflow_execution_logs (
+        id, workspace_id, workflow_id, phone, trigger_source, status, executed_nodes, summary, details
+      )
+      VALUES (
+        ${executionLogId},
+        ${workspaceId},
+        ${String(id)},
+        ${String(phone)},
+        ${internalEnabled ? 'webhook' : 'manual'},
+        ${'started'},
+        ${0},
+        ${'Workflow execution started'},
+        ${JSON.stringify({
+          variables: variables || {},
+          executionNodeIds: executionNodes.map((node) => node.id),
+          executionNodeTypes: executionNodes.map((node) => node.type || ''),
+        })}
+      )
+    `;
 
     for (const node of executionNodes) {
       const type = node.type || '';
@@ -497,6 +521,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (log.length === 0) {
+      await sql`
+        UPDATE workflow_execution_logs
+        SET
+          status = ${'failed'},
+          executed_nodes = ${0},
+          summary = ${'No supported action nodes were executed'},
+          details = ${JSON.stringify({
+            foundNodeTypes: allNodeTypes,
+            foundActionNodeTypes: actionNodeTypes,
+            supportedActionNodeTypes: ['actionSendMessage', 'actionSendMedia', 'actionSaveContact'],
+          })},
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${executionLogId}
+      `;
       return NextResponse.json(
         {
           success: false,
@@ -511,6 +549,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    await sql`
+      UPDATE workflow_execution_logs
+      SET
+        status = ${'completed'},
+        executed_nodes = ${log.length},
+        summary = ${`Workflow executed successfully (${log.length} node${log.length === 1 ? '' : 's'})`},
+        details = ${JSON.stringify({
+          log,
+          executionNodeIds: executionNodes.map((node) => node.id),
+          executionNodeTypes: executionNodes.map((node) => node.type || ''),
+        })},
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${executionLogId}
+    `;
+
     return NextResponse.json({
       success: true,
       workflowId: id,
@@ -518,6 +571,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       log,
     });
   } catch (error: any) {
+    if (executionLogId) {
+      try {
+        await sql`
+          UPDATE workflow_execution_logs
+          SET
+            status = ${'failed'},
+            summary = ${String(error?.message || 'Failed to execute workflow')},
+            details = ${JSON.stringify({
+              error: String(error?.message || 'Failed to execute workflow'),
+              stack: String(error?.stack || ''),
+            })},
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${executionLogId}
+        `;
+      } catch {
+        // Best-effort logging only.
+      }
+    }
     return NextResponse.json(
       {
         success: false,

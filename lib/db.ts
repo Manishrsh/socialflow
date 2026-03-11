@@ -200,6 +200,27 @@ export async function ensureCoreSchema(): Promise<void> {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS workflow_execution_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+        phone VARCHAR(30),
+        trigger_source VARCHAR(50) NOT NULL DEFAULT 'manual',
+        status VARCHAR(50) NOT NULL DEFAULT 'started',
+        executed_nodes INTEGER DEFAULT 0,
+        summary TEXT,
+        details JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_workflow_execution_logs_lookup
+      ON workflow_execution_logs(workspace_id, workflow_id, created_at DESC)
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS meta_apps (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
