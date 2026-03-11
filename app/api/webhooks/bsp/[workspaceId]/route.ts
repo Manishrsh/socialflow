@@ -91,9 +91,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     await ensureCoreSchema();
     const { workspaceId } = await params;
+    const provider = getProviderFromRequest(request);
 
     const requestToken = getTokenFromRequest(request);
-    if (!SHARED_WEBHOOK_TOKEN || requestToken !== SHARED_WEBHOOK_TOKEN) {
+    const requiresSharedToken = provider !== 'meta';
+    if (requiresSharedToken && (!SHARED_WEBHOOK_TOKEN || requestToken !== SHARED_WEBHOOK_TOKEN)) {
       return NextResponse.json({ error: 'Unauthorized webhook token' }, { status: 401 });
     }
 
@@ -104,7 +106,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
     }
 
-    const provider = getProviderFromRequest(request);
     const body = await parseWebhookBody(request);
     const normalized = mapInboundEvent(provider, body);
 
