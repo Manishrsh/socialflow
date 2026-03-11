@@ -91,17 +91,21 @@ function findMatchingStartNode(
   )
     .trim()
     .toLowerCase();
+  const keywordStarters = starters.filter((node) => node.type === 'triggerKeyword');
 
-  for (const node of starters) {
-    if (node.type === 'triggerKeyword') {
+  if (keywordStarters.length > 0) {
+    for (const node of keywordStarters) {
       const keywords = normalizeKeywords(node.data || {});
       if (!keywords.length) continue;
       if (incomingText && keywords.some((keyword) => incomingText.includes(keyword))) {
         return node;
       }
-      continue;
     }
 
+    return null;
+  }
+
+  for (const node of starters) {
     if (node.type === 'triggerMessage') {
       return node;
     }
