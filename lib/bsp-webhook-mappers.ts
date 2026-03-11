@@ -75,9 +75,10 @@ function mapTwilio(body: any): Partial<NormalizedInboundEvent> {
 function map360dialog(body: any): Partial<NormalizedInboundEvent> {
   const value = body?.entry?.[0]?.changes?.[0]?.value || body?.value || {};
   const msg = value?.messages?.[0] || {};
+  const status = value?.statuses?.[0] || {};
   const contact = value?.contacts?.[0] || {};
 
-  const phone = normalizePhone(pickFirst(msg?.from, contact?.wa_id, body?.from));
+  const phone = normalizePhone(pickFirst(msg?.from, status?.recipient_id, contact?.wa_id, body?.from));
   const message = pickFirst(
     msg?.text?.body,
     msg?.button?.text,
@@ -93,11 +94,11 @@ function map360dialog(body: any): Partial<NormalizedInboundEvent> {
   );
 
   return {
-    eventType: String(pickFirst(msg?.type, body?.event, 'message')),
+    eventType: String(pickFirst(msg?.type, status?.status, body?.event, 'message')),
     phone,
     message: message ? String(message) : undefined,
     mediaUrl: mediaUrl ? String(mediaUrl) : undefined,
-    externalMessageId: pickFirst(msg?.id, body?.messageId),
+    externalMessageId: pickFirst(msg?.id, status?.id, body?.messageId),
   };
 }
 
@@ -172,6 +173,9 @@ export function mapInboundEvent(providerInput: string, body: any): NormalizedInb
       mapped = mapTwilio(body);
       break;
     case '360dialog':
+      mapped = map360dialog(body);
+      break;
+    case 'meta':
       mapped = map360dialog(body);
       break;
     case 'instagram':

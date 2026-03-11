@@ -30,7 +30,7 @@ export default function WorkflowDetailPage() {
   useEffect(() => {
     const fetchWorkflow = async () => {
       try {
-        const response = await fetch(`/api/workflows/${workflowId}`);
+        const response = await fetch(`/api/workflows/${workflowId}`, { cache: 'no-store' });
         if (!response.ok) {
           throw new Error('Failed to fetch workflow');
         }
@@ -45,6 +45,31 @@ export default function WorkflowDetailPage() {
 
     fetchWorkflow();
   }, [workflowId]);
+
+  const handleToggleActive = async () => {
+    if (!workflow) return;
+
+    try {
+      const response = await fetch(`/api/workflows/${workflowId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isActive: !workflow.is_active,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to update workflow status');
+      }
+
+      setWorkflow((prev) =>
+        prev ? { ...prev, is_active: !prev.is_active } : null
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update workflow status');
+    }
+  };
 
   const handleSave = async (nodes: Node[], edges: Edge[]) => {
     if (!workflow) return;
@@ -123,6 +148,9 @@ export default function WorkflowDetailPage() {
   return (
     <div className="relative">
       <div className="absolute right-4 top-4 z-20 flex items-end gap-2 rounded-lg border bg-background/95 p-2 shadow">
+        <Button variant={workflow.is_active ? 'outline' : 'default'} onClick={handleToggleActive}>
+          {workflow.is_active ? 'Deactivate Flow' : 'Activate Flow'}
+        </Button>
         <Input
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
