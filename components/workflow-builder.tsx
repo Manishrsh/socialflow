@@ -473,6 +473,58 @@ function WorkflowBuilderContent({
     }));
   };
 
+  const getMainMenuNodeOptions = (currentNodeId: string) =>
+    nodes
+      .filter((node) => {
+        if (node.id === currentNodeId) return false;
+        if (node.type !== 'actionSendMessage') return false;
+        const data = node.data || {};
+        const buttons = Array.isArray(data.buttons) ? data.buttons : [];
+        const hasLegacyButtons =
+          !!String(data.button1Title || '').trim() || !!String(data.button2Title || '').trim();
+        const messageType = String(data.messageType || '').trim().toLowerCase();
+        return (
+          buttons.length > 0 ||
+          hasLegacyButtons ||
+          messageType === 'interactive_button' ||
+          messageType === 'interactive_list'
+        );
+      })
+      .map((node) => ({
+        id: node.id,
+        label: String(node.data?.label || node.type || node.id),
+      }));
+
+  const renderMainMenuConfig = (currentNodeId: string, currentNodeData: Record<string, any>) => {
+    const menuNodeOptions = getMainMenuNodeOptions(currentNodeId);
+
+    return (
+      <div className="rounded-lg border p-3 space-y-3">
+        <div className="text-sm font-medium">Back To Main Menu</div>
+        <div className="text-xs text-foreground/60">
+          After this action finishes, send the selected menu again so the user can choose another option.
+        </div>
+        <select
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          value={currentNodeData?.mainMenuNodeId || ''}
+          onChange={(e) => {
+            const targetId = e.target.value;
+            const target = menuNodeOptions.find((option) => option.id === targetId);
+            updateNodeData(currentNodeId, 'mainMenuNodeId', targetId);
+            updateNodeData(currentNodeId, 'mainMenuNodeLabel', target?.label || '');
+          }}
+        >
+          <option value="">Do not return to menu</option>
+          {menuNodeOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
   const renderNodeCategory = (
     category: string,
     templates: any[],
@@ -607,20 +659,7 @@ function WorkflowBuilderContent({
               const template = selectedNode?.type ? getNodeTemplate(selectedNode.type) : null;
 
               if (selectedNode?.type === 'systemBackToMainMenu') {
-                const menuNodeOptions = nodes
-                  .filter((node) => {
-                    if (node.id === selectedNodeId) return false;
-                    if (node.type !== 'actionSendMessage') return false;
-                    const data = node.data || {};
-                    const buttons = Array.isArray(data.buttons) ? data.buttons : [];
-                    const hasLegacyButtons = !!String(data.button1Title || '').trim() || !!String(data.button2Title || '').trim();
-                    const messageType = String(data.messageType || '').trim().toLowerCase();
-                    return buttons.length > 0 || hasLegacyButtons || messageType === 'interactive_button' || messageType === 'interactive_list';
-                  })
-                  .map((node) => ({
-                    id: node.id,
-                    label: String(node.data?.label || node.type || node.id),
-                  }));
+                const menuNodeOptions = getMainMenuNodeOptions(selectedNodeId);
 
                 return (
                   <div className="space-y-4">
@@ -1017,6 +1056,8 @@ function WorkflowBuilderContent({
                         />
                       </div>
                     )}
+
+                    {renderMainMenuConfig(selectedNodeId, selectedNode.data || {})}
                   </div>
                 );
               }
@@ -1207,6 +1248,8 @@ function WorkflowBuilderContent({
                         rows={3}
                       />
                     </div>
+
+                    {renderMainMenuConfig(selectedNodeId, selectedNode.data || {})}
                   </div>
                 );
               }
@@ -1317,6 +1360,10 @@ function WorkflowBuilderContent({
                       )}
                     </div>
                   ))}
+
+                  {selectedNode?.type?.startsWith('action')
+                    ? renderMainMenuConfig(selectedNodeId, selectedNode.data || {})
+                    : null}
                 </div>
               );
             })()}

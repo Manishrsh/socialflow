@@ -130,6 +130,11 @@ export function CustomNode({
                 Media items: {mediaItems.length}
               </div>
             )}
+            {String(type || '').startsWith('action') && data.mainMenuLabel && (
+              <div>
+                Back to menu: {data.mainMenuLabel}
+              </div>
+            )}
             {type === 'triggerKeyword' && keywordList.length > 0 && (
               <div>
                 Keywords: {keywordList.join(', ')}

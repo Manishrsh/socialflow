@@ -30,6 +30,13 @@ interface FlowEdge {
 
 const BACK_TO_MAIN_MENU_NODE_TYPE = 'systemBackToMainMenu';
 
+function getMainMenuTargetNodeId(node: FlowNode, nodeById: Map<string, FlowNode>): string | null {
+  const targetNodeId = String(node.data?.mainMenuNodeId || '').trim();
+  if (!targetNodeId) return null;
+  if (targetNodeId === node.id) return null;
+  return nodeById.has(targetNodeId) ? targetNodeId : null;
+}
+
 function normalizeNodeButtons(data: Record<string, any>): Array<{ id: string; title: string }> {
   const arrayButtons = Array.isArray(data.buttons) ? data.buttons : [];
   if (arrayButtons.length > 0) {
@@ -386,6 +393,16 @@ function resolveExecutionPath(
     }
 
     path.push(node);
+    if (String(node.type || '').startsWith('action')) {
+      const mainMenuTargetNodeId = getMainMenuTargetNodeId(node, nodeById);
+      if (mainMenuTargetNodeId) {
+        visited.delete(mainMenuTargetNodeId);
+        currentReplyId = '';
+        currentReplyTitle = '';
+        currentId = mainMenuTargetNodeId;
+        continue;
+      }
+    }
     const next = outgoing.get(currentId) || [];
     if (next.length === 0) break;
 
