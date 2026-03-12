@@ -4,6 +4,19 @@ import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/auth';
 import { v4 as uuidv4 } from 'uuid';
 
+function getPublicOrigin(request: NextRequest): string {
+  const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').trim();
+  const forwardedHost = String(request.headers.get('x-forwarded-host') || '').trim();
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  const envBaseUrl = String(process.env.NEXT_PUBLIC_BASE_URL || '').trim();
+  if (envBaseUrl) return envBaseUrl.replace(/\/$/, '');
+
+  return new URL(request.url).origin;
+}
+
 export async function POST(request: NextRequest) {
   try {
     await ensureCoreSchema();
@@ -44,7 +57,7 @@ export async function POST(request: NextRequest) {
     const base64 = Buffer.from(fileBuffer).toString('base64');
     const mimeType = file.type || 'application/octet-stream';
     const topType = mimeType.split('/')[0] || 'application';
-    const origin = new URL(request.url).origin;
+    const origin = getPublicOrigin(request);
     const mediaUrl = `${origin}/api/media/${mediaId}/content`;
 
     await sql`

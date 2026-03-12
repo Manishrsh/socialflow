@@ -87,6 +87,26 @@ function normalizeMediaItems(
   ];
 }
 
+function resolvePublicBaseUrl(request: NextRequest): string {
+  const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').trim();
+  const forwardedHost = String(request.headers.get('x-forwarded-host') || '').trim();
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  const envBaseUrl = String(process.env.NEXT_PUBLIC_BASE_URL || '').trim();
+  if (envBaseUrl) return envBaseUrl.replace(/\/$/, '');
+
+  return request.nextUrl.origin;
+}
+
+function normalizeOutboundMediaUrl(mediaUrl: string, publicBaseUrl: string): string {
+  const raw = String(mediaUrl || '').trim();
+  if (!raw) return raw;
+  if (raw.startsWith('/')) return `${publicBaseUrl}${raw}`;
+  return raw.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, publicBaseUrl);
+}
+
 function toArray(value: any): any[] {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -391,6 +411,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const workflow = workflows[0];
     const workspaceId = workflow.workspace_id as string;
+    const publicBaseUrl = resolvePublicBaseUrl(request);
     const nodes = toArray(workflow.nodes) as FlowNode[];
     const edges = toArray(workflow.edges) as FlowEdge[];
     const orderedNodes = resolveExecutionOrder(nodes, edges);
@@ -594,6 +615,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
 
         for (const [index, item] of mediaItems.entries()) {
+          const mediaUrl = normalizeOutboundMediaUrl(String(item.mediaUrl || ''), publicBaseUrl);
           const mediaId = isLikelyMetaMediaId(item.metaMediaId) ? item.metaMediaId : null;
           const caption =
             item.caption || data.caption || data.message || variables?.message || `Media item ${index + 1}`;
@@ -602,7 +624,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             channel: 'whatsapp',
             recipient: String(phone),
             caption,
-            mediaUrl: String(item.mediaUrl || ''),
+            mediaUrl,
             mediaType: item.mediaType || data.mediaType || 'media',
             payload: {
               mediaId,
@@ -627,7 +649,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
           await upsertCustomerAndLogOutbound(
             caption || null,
-            item.mediaUrl || null,
+            mediaUrl || null,
             'media'
           );
         }

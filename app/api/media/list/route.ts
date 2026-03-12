@@ -3,6 +3,26 @@ import { sql, ensureCoreSchema } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/auth';
 
+function getPublicOrigin(request: NextRequest): string {
+  const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').trim();
+  const forwardedHost = String(request.headers.get('x-forwarded-host') || '').trim();
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  const envBaseUrl = String(process.env.NEXT_PUBLIC_BASE_URL || '').trim();
+  if (envBaseUrl) return envBaseUrl.replace(/\/$/, '');
+
+  return new URL(request.url).origin;
+}
+
+function normalizeMediaUrl(url: string, publicOrigin: string): string {
+  const raw = String(url || '').trim();
+  if (!raw) return raw;
+  if (raw.startsWith('/')) return `${publicOrigin}${raw}`;
+  return raw.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, publicOrigin);
+}
+
 export async function GET(request: NextRequest) {
   try {
     await ensureCoreSchema();
@@ -54,13 +74,14 @@ export async function GET(request: NextRequest) {
         )
       : workspaceFilter;
 
+    const publicOrigin = getPublicOrigin(request);
     const media = typed.map((row: any) => ({
       id: row.id,
       title: row.name || 'Untitled',
       file_name: row.name || 'file',
       file_type: row.mime_type || row.type || 'application/octet-stream',
       file_size: row.size_bytes || 0,
-      url: row.url,
+      url: normalizeMediaUrl(String(row.url || ''), publicOrigin),
       created_at: row.created_at,
     }));
 
