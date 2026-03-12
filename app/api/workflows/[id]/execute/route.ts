@@ -600,6 +600,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             !!String((variables || {}).buttonReplyTitle || '').trim();
           if ((finalMessageType === 'interactive_button' || finalMessageType === 'interactive_list') && !hasReplyInput) {
             await sql`
+              DELETE FROM workflow_wait_states
+              WHERE workspace_id = ${workspaceId}
+                AND workflow_id = ${id}
+                AND phone = ${String(phone)}
+            `;
+            await sql`
               INSERT INTO workflow_wait_states (workspace_id, workflow_id, node_id, phone, expires_at)
               VALUES (
                 ${workspaceId},
@@ -675,29 +681,38 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (log.length === 0) {
+      const replyId = String((variables || {}).buttonReplyId || (variables || {}).buttonId || '').trim();
+      const replyTitle = String((variables || {}).buttonReplyTitle || (variables || {}).buttonTitle || '').trim();
+      const missingRouteSummary =
+        replyId || replyTitle
+          ? `No route configured for clicked option${replyTitle ? ` "${replyTitle}"` : ''}`
+          : 'No supported action nodes were executed';
+      const missingRouteDetails = {
+        foundNodeTypes: allNodeTypes,
+        foundActionNodeTypes: actionNodeTypes,
+        supportedActionNodeTypes: ['actionSendMessage', 'actionSendMedia', 'actionSaveContact'],
+        ...(replyId || replyTitle
+          ? {
+              clickedOptionId: replyId || null,
+              clickedOptionTitle: replyTitle || null,
+            }
+          : {}),
+      };
       await sql`
         UPDATE workflow_execution_logs
         SET
           status = ${'failed'},
           executed_nodes = ${0},
-          summary = ${'No supported action nodes were executed'},
-          details = ${JSON.stringify({
-            foundNodeTypes: allNodeTypes,
-            foundActionNodeTypes: actionNodeTypes,
-            supportedActionNodeTypes: ['actionSendMessage', 'actionSendMedia', 'actionSaveContact'],
-          })},
+          summary = ${missingRouteSummary},
+          details = ${JSON.stringify(missingRouteDetails)},
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ${executionLogId}
       `;
       return NextResponse.json(
         {
           success: false,
-          error: 'No supported action nodes were executed for this workflow.',
-          debug: {
-            foundNodeTypes: allNodeTypes,
-            foundActionNodeTypes: actionNodeTypes,
-            supportedActionNodeTypes: ['actionSendMessage', 'actionSendMedia', 'actionSaveContact'],
-          },
+          error: missingRouteSummary,
+          debug: missingRouteDetails,
         },
         { status: 400 }
       );
