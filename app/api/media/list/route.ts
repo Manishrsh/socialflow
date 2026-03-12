@@ -3,6 +3,9 @@ import { sql, ensureCoreSchema } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 function getPublicOrigin(request: NextRequest): string {
   const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').trim();
   const forwardedHost = String(request.headers.get('x-forwarded-host') || '').trim();
@@ -147,12 +150,19 @@ export async function GET(request: NextRequest) {
       created_at: row.created_at,
     }));
 
-    return NextResponse.json({
-      media,
-      total: Number(totalRows?.[0]?.count || 0),
-      page: Math.max(1, page),
-      limit: Math.max(1, limit),
-    });
+    return NextResponse.json(
+      {
+        media,
+        total: Number(totalRows?.[0]?.count || 0),
+        page: Math.max(1, page),
+        limit: Math.max(1, limit),
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+        },
+      }
+    );
   } catch (error) {
     console.error('Media list error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

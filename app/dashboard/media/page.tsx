@@ -19,7 +19,7 @@ interface MediaItem {
   created_at: string;
 }
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then((res) => res.json());
 
 export default function MediaLibraryPage() {
   const { workspace } = useAuth();
@@ -32,7 +32,11 @@ export default function MediaLibraryPage() {
 
   const { data, isLoading, mutate } = useSWR(
     workspace ? `/api/media/list?workspaceId=${workspace.id}&fileType=${fileType}` : null,
-    fetcher
+    fetcher,
+    {
+      revalidateOnFocus: true,
+      dedupingInterval: 0,
+    }
   );
 
   const mediaItems: MediaItem[] = data?.media || [];
