@@ -135,6 +135,11 @@ export function CustomNode({
                 Keywords: {keywordList.join(', ')}
               </div>
             )}
+            {type === 'systemBackToMainMenu' && data.menuNodeLabel && (
+              <div>
+                Menu: {data.menuNodeLabel}
+              </div>
+            )}
             {template?.config?.map((field: NodeConfigField) => {
               const value = data[field.key];
               return value ? (
@@ -210,5 +215,6 @@ export const nodeTypes = {
   integrationSheet: IntegrationNode,
   integrationDatabase: IntegrationNode,
   integrationWebhook: IntegrationNode,
+  systemBackToMainMenu: SystemNode,
   systemEnd: SystemNode,
 };

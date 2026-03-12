@@ -64,6 +64,7 @@ export const NODE_TYPES = {
   INTEGRATION_WEBHOOK: 'integrationWebhook',
 
   // System
+  SYSTEM_BACK_TO_MAIN_MENU: 'systemBackToMainMenu',
   SYSTEM_END: 'systemEnd',
 };
 
@@ -467,6 +468,23 @@ export const INTEGRATION_NODES = [
 ];
 
 export const SYSTEM_NODES = [
+  {
+    type: NODE_TYPES.SYSTEM_BACK_TO_MAIN_MENU,
+    label: 'Back To Main Menu',
+    description: 'Return to a selected menu node and send it again as a fresh choice',
+    category: 'System',
+    icon: '↩',
+    color: 'from-sky-500 to-cyan-600',
+    config: [
+      {
+        key: 'menuNodeId',
+        label: 'Menu Node',
+        type: 'text',
+        placeholder: 'Select the menu node',
+        required: false,
+      },
+    ],
+  },
   {
     type: NODE_TYPES.SYSTEM_END,
     label: 'End',

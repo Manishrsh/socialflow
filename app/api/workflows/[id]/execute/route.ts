@@ -28,6 +28,8 @@ interface FlowEdge {
   sourceHandle?: string;
 }
 
+const BACK_TO_MAIN_MENU_NODE_TYPE = 'systemBackToMainMenu';
+
 function normalizeNodeButtons(data: Record<string, any>): Array<{ id: string; title: string }> {
   const arrayButtons = Array.isArray(data.buttons) ? data.buttons : [];
   if (arrayButtons.length > 0) {
@@ -283,9 +285,9 @@ function resolveExecutionPath(
     (n) => (n.type || '').startsWith('trigger') || (incomingCount.get(n.id) || 0) === 0
   );
   const resumeNodeId = String(variables?.resumeNodeId || '').trim();
-  const replyId = String(variables?.buttonReplyId || variables?.buttonId || '').trim();
-  const replyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim();
-  const hasReply = !!replyId || !!replyTitle;
+  let currentReplyId = String(variables?.buttonReplyId || variables?.buttonId || '').trim();
+  let currentReplyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim();
+  const hasReply = !!currentReplyId || !!currentReplyTitle;
 
   const matchedStartNode = findMatchingStartNode(starters, variables);
   const fallbackStartNode = starters.length === 0 ? nodes[0] : null;
@@ -305,6 +307,18 @@ function resolveExecutionPath(
 
     const node = nodeById.get(currentId);
     if (!node) break;
+    if (node.type === BACK_TO_MAIN_MENU_NODE_TYPE) {
+      const targetMenuNodeId = String(node.data?.menuNodeId || '').trim();
+      if (!targetMenuNodeId || !nodeById.has(targetMenuNodeId)) {
+        break;
+      }
+      path.push(node);
+      visited.delete(targetMenuNodeId);
+      currentReplyId = '';
+      currentReplyTitle = '';
+      currentId = targetMenuNodeId;
+      continue;
+    }
     if (node.type === 'triggerKeyword' && !keywordNodeMatches(node, variables)) {
       return [];
     }
@@ -321,7 +335,7 @@ function resolveExecutionPath(
         buttons.length > 0;
 
       if (hasInteractiveChoice) {
-        if (!replyId && !replyTitle) {
+        if (!currentReplyId && !currentReplyTitle) {
           path.push(node);
           break; // Wait for user choice before moving to next node.
         }
@@ -338,12 +352,12 @@ function resolveExecutionPath(
           : {};
         let target: string | null = null;
 
-        if (replyId && edgeButtonRoutes[replyId]) {
-          target = String(edgeButtonRoutes[replyId]);
-        } else if (replyId && routes[replyId]) {
-          target = String(routes[replyId]);
-        } else if (replyTitle) {
-          const btn = buttons.find((b) => b.title.toLowerCase() === replyTitle.toLowerCase());
+        if (currentReplyId && edgeButtonRoutes[currentReplyId]) {
+          target = String(edgeButtonRoutes[currentReplyId]);
+        } else if (currentReplyId && routes[currentReplyId]) {
+          target = String(routes[currentReplyId]);
+        } else if (currentReplyTitle) {
+          const btn = buttons.find((b) => b.title.toLowerCase() === currentReplyTitle.toLowerCase());
           if (btn?.id && edgeButtonRoutes[btn.id]) {
             target = String(edgeButtonRoutes[btn.id]);
           } else if (btn?.id && routes[btn.id]) {
@@ -358,6 +372,8 @@ function resolveExecutionPath(
             continue;
           }
           path.push(node);
+          currentReplyId = '';
+          currentReplyTitle = '';
           currentId = target;
           continue;
         }
@@ -442,6 +458,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const allNodeTypes = orderedNodes.map((n) => n.type || '');
     const actionNodeTypes = allNodeTypes.filter((t) => t.startsWith('action'));
     const log: Array<Record<string, any>> = [];
+    let replyAlreadyConsumed = false;
     executionLogId = randomUUID();
 
     await sql`
@@ -613,7 +630,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             finalMessageType
           );
 
-          const consumedReplyForThisNode = replyMatchesInteractiveNode(node, variables || {});
+          const consumedReplyForThisNode =
+            !replyAlreadyConsumed && replyMatchesInteractiveNode(node, variables || {});
+          if (consumedReplyForThisNode) {
+            replyAlreadyConsumed = true;
+          }
           if (
             (finalMessageType === 'interactive_button' || finalMessageType === 'interactive_list') &&
             !consumedReplyForThisNode
