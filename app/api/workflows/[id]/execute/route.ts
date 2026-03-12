@@ -87,6 +87,24 @@ function normalizeMediaItems(
   ];
 }
 
+function replyMatchesInteractiveNode(
+  node: FlowNode,
+  variables: Record<string, any> | undefined
+): boolean {
+  const replyId = String(variables?.buttonReplyId || variables?.buttonId || '').trim();
+  const replyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim().toLowerCase();
+  if (!replyId && !replyTitle) return false;
+
+  const buttons = normalizeNodeButtons(node.data || {});
+  if (replyId && buttons.some((button) => String(button.id || '').trim() === replyId)) {
+    return true;
+  }
+  if (replyTitle && buttons.some((button) => String(button.title || '').trim().toLowerCase() === replyTitle)) {
+    return true;
+  }
+  return false;
+}
+
 function resolvePublicBaseUrl(request: NextRequest): string {
   const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').trim();
   const forwardedHost = String(request.headers.get('x-forwarded-host') || '').trim();
@@ -595,10 +613,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             finalMessageType
           );
 
-          const hasReplyInput =
-            !!String((variables || {}).buttonReplyId || '').trim() ||
-            !!String((variables || {}).buttonReplyTitle || '').trim();
-          if ((finalMessageType === 'interactive_button' || finalMessageType === 'interactive_list') && !hasReplyInput) {
+          const consumedReplyForThisNode = replyMatchesInteractiveNode(node, variables || {});
+          if (
+            (finalMessageType === 'interactive_button' || finalMessageType === 'interactive_list') &&
+            !consumedReplyForThisNode
+          ) {
             await sql`
               DELETE FROM workflow_wait_states
               WHERE workspace_id = ${workspaceId}
