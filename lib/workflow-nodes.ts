@@ -214,7 +214,7 @@ export const ACTION_NODES = [
   {
     type: NODE_TYPES.ACTION_SEND_MEDIA,
     label: 'Send Media',
-    description: 'Send images/videos/documents by URL or Meta media ID',
+    description: 'Send one or many images/videos/documents by URL or Meta media ID',
     category: 'Actions',
     icon: '📸',
     color: 'from-pink-500 to-rose-600',

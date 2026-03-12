@@ -282,6 +282,80 @@ function WorkflowBuilderContent({
     updateKeywordList(nodeId, keywords.filter((_, itemIndex) => itemIndex !== index));
   };
 
+  const getMediaItems = (nodeId: string) => {
+    const selectedNode = nodes.find((n) => n.id === nodeId);
+    const mediaItems = Array.isArray(selectedNode?.data?.mediaItems)
+      ? selectedNode.data.mediaItems
+      : [];
+
+    if (mediaItems.length > 0) {
+      return mediaItems.map((item: any, index: number) => ({
+        mediaType: String(item?.mediaType || selectedNode?.data?.mediaType || 'image'),
+        mediaUrl: String(item?.mediaUrl || ''),
+        caption: String(item?.caption || ''),
+        metaMediaId: String(item?.metaMediaId || ''),
+        sortOrder: Number(item?.sortOrder ?? index),
+      }));
+    }
+
+    const legacyUrl = String(selectedNode?.data?.mediaUrl || '').trim();
+    const legacyMediaId = String(selectedNode?.data?.metaMediaId || '').trim();
+    if (!legacyUrl && !legacyMediaId) return [];
+
+    return [
+      {
+        mediaType: String(selectedNode?.data?.mediaType || 'image'),
+        mediaUrl: legacyUrl,
+        caption: String(selectedNode?.data?.caption || ''),
+        metaMediaId: legacyMediaId,
+        sortOrder: 0,
+      },
+    ];
+  };
+
+  const updateMediaItems = (nodeId: string, mediaItems: Array<Record<string, any>>) => {
+    updateNodeData(nodeId, 'mediaItems', mediaItems);
+  };
+
+  const addMediaItem = (nodeId: string) => {
+    const items = getMediaItems(nodeId);
+    updateMediaItems(nodeId, [
+      ...items,
+      {
+        mediaType: 'image',
+        mediaUrl: '',
+        caption: '',
+        metaMediaId: '',
+        sortOrder: items.length,
+      },
+    ]);
+  };
+
+  const updateMediaItem = (
+    nodeId: string,
+    index: number,
+    key: 'mediaType' | 'mediaUrl' | 'caption' | 'metaMediaId',
+    value: string
+  ) => {
+    const items = getMediaItems(nodeId);
+    updateMediaItems(
+      nodeId,
+      items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value, sortOrder: itemIndex } : item
+      )
+    );
+  };
+
+  const removeMediaItem = (nodeId: string, index: number) => {
+    const items = getMediaItems(nodeId);
+    updateMediaItems(
+      nodeId,
+      items
+        .filter((_, itemIndex) => itemIndex !== index)
+        .map((item, itemIndex) => ({ ...item, sortOrder: itemIndex }))
+    );
+  };
+
   const addNode = (template: any) => {
     const newNode: Node = {
       id: uuidv4(),
@@ -874,6 +948,7 @@ function WorkflowBuilderContent({
               }
 
               if (selectedNode?.type === 'actionSendMedia') {
+                const mediaItems = getMediaItems(selectedNodeId);
                 return (
                   <div className="space-y-4">
                     <div className="flex gap-2">
@@ -910,6 +985,23 @@ function WorkflowBuilderContent({
                           } else if (media) {
                             updateNodeData(selectedNodeId, 'mediaType', 'document');
                           }
+                          if (media) {
+                            const nextType = media?.file_type?.startsWith('image/')
+                              ? 'image'
+                              : media?.file_type?.startsWith('video/')
+                                ? 'video'
+                                : 'document';
+                            updateMediaItems(selectedNodeId, [
+                              ...mediaItems,
+                              {
+                                mediaType: nextType,
+                                mediaUrl: media.url || '',
+                                caption: '',
+                                metaMediaId: '',
+                                sortOrder: mediaItems.length,
+                              },
+                            ]);
+                          }
                         }}
                       >
                         <option value="">
@@ -921,6 +1013,78 @@ function WorkflowBuilderContent({
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    <div className="rounded-lg border p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium">Media Collection</div>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-muted"
+                          onClick={() => addMediaItem(selectedNodeId)}
+                        >
+                          Add Photo
+                        </button>
+                      </div>
+
+                      <div className="text-xs text-foreground/60">
+                        Add many jewelry photos here. They will be sent one by one in this order.
+                      </div>
+
+                      {mediaItems.length === 0 ? (
+                        <div className="text-xs text-foreground/60">No media items added yet.</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {mediaItems.map((item, index) => (
+                            <div key={`${selectedNodeId}-media-${index}`} className="rounded-lg border p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs font-medium">Item {index + 1}</div>
+                                <button
+                                  type="button"
+                                  className="rounded-lg border border-destructive/40 px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+                                  onClick={() => removeMediaItem(selectedNodeId, index)}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+
+                              <select
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                value={item.mediaType || 'image'}
+                                onChange={(e) => updateMediaItem(selectedNodeId, index, 'mediaType', e.target.value)}
+                              >
+                                <option value="image">image</option>
+                                <option value="video">video</option>
+                                <option value="document">document</option>
+                              </select>
+
+                              <input
+                                type="text"
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                placeholder="Media URL"
+                                value={item.mediaUrl || ''}
+                                onChange={(e) => updateMediaItem(selectedNodeId, index, 'mediaUrl', e.target.value)}
+                              />
+
+                              <input
+                                type="text"
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                placeholder="Meta media ID (optional)"
+                                value={item.metaMediaId || ''}
+                                onChange={(e) => updateMediaItem(selectedNodeId, index, 'metaMediaId', e.target.value)}
+                              />
+
+                              <textarea
+                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                placeholder="Caption"
+                                value={item.caption || ''}
+                                onChange={(e) => updateMediaItem(selectedNodeId, index, 'caption', e.target.value)}
+                                rows={2}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div>

@@ -53,6 +53,23 @@ function normalizeKeywords(data: Record<string, any>): string[] {
   return singleKeyword ? [singleKeyword] : [];
 }
 
+function normalizeMediaItems(data: Record<string, any>): Array<{ mediaUrl: string; caption: string }> {
+  const fromArray = Array.isArray(data?.mediaItems)
+    ? data.mediaItems
+        .map((item: any) => ({
+          mediaUrl: String(item?.mediaUrl || '').trim(),
+          caption: String(item?.caption || '').trim(),
+        }))
+        .filter((item) => item.mediaUrl || item.caption)
+    : [];
+
+  if (fromArray.length > 0) return fromArray;
+
+  const singleUrl = String(data?.mediaUrl || '').trim();
+  if (!singleUrl) return [];
+  return [{ mediaUrl: singleUrl, caption: String(data?.caption || '').trim() }];
+}
+
 export function CustomNode({
   id,
   data,
@@ -63,6 +80,7 @@ export function CustomNode({
   const onDelete = data.onDelete;
   const messageType = String(data?.messageType || '').trim().toLowerCase();
   const keywordList = type === 'triggerKeyword' ? normalizeKeywords(data) : [];
+  const mediaItems = type === 'actionSendMedia' ? normalizeMediaItems(data) : [];
   const buttonOptions =
     type === 'actionSendMessage' &&
     (messageType === 'interactive_button' || messageType === '' || messageType === 'interactive_list')
@@ -105,6 +123,11 @@ export function CustomNode({
             {type === 'actionSendMessage' && buttonOptions.length > 0 && (
               <div>
                 Options: {buttonOptions.length}
+              </div>
+            )}
+            {type === 'actionSendMedia' && mediaItems.length > 0 && (
+              <div>
+                Media items: {mediaItems.length}
               </div>
             )}
             {type === 'triggerKeyword' && keywordList.length > 0 && (

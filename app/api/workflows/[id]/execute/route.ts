@@ -55,6 +55,38 @@ function normalizeNodeButtons(data: Record<string, any>): Array<{ id: string; ti
     .filter((b) => b.id && b.title);
 }
 
+function normalizeMediaItems(
+  data: Record<string, any>,
+  variables: Record<string, any> | undefined
+): Array<{ mediaUrl: string; mediaType: string; caption: string; metaMediaId: string }> {
+  const mediaItems = Array.isArray(data.mediaItems) ? data.mediaItems : [];
+  const normalizedItems = mediaItems
+    .map((item: any) => ({
+      mediaUrl: String(item?.mediaUrl || '').trim(),
+      mediaType: String(item?.mediaType || data.mediaType || 'image').trim().toLowerCase(),
+      caption: String(item?.caption || '').trim(),
+      metaMediaId: String(item?.metaMediaId || '').trim(),
+    }))
+    .filter((item) => item.mediaUrl || item.metaMediaId);
+
+  if (normalizedItems.length > 0) {
+    return normalizedItems;
+  }
+
+  const legacyMediaUrl = String(data.mediaUrl || data.url || '').trim();
+  const legacyMetaMediaId = String(data.metaMediaId || '').trim();
+  if (!legacyMediaUrl && !legacyMetaMediaId) return [];
+
+  return [
+    {
+      mediaUrl: legacyMediaUrl,
+      mediaType: String(data.mediaType || 'image').trim().toLowerCase(),
+      caption: String(data.caption || data.message || variables?.message || 'Media message').trim(),
+      metaMediaId: legacyMetaMediaId,
+    },
+  ];
+}
+
 function toArray(value: any): any[] {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -556,39 +588,49 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       if (type === 'actionSendMedia') {
-        const mediaUrl = data.mediaUrl || data.url;
-        const explicitMetaMediaId = String(data.metaMediaId || '').trim();
-        const mediaId = isLikelyMetaMediaId(explicitMetaMediaId) ? explicitMetaMediaId : null;
-        const caption = data.caption || data.message || variables?.message || 'Media message';
-        const res = await queueOwnBspMediaMessage({
-          workspaceId,
-          channel: 'whatsapp',
-          recipient: String(phone),
-          caption,
-          mediaUrl: String(mediaUrl || ''),
-          mediaType: data.mediaType || 'media',
-          payload: {
-            mediaId,
-            source: 'workflow',
-            workflowId: id,
-            nodeId: node.id,
-          },
-        });
-        if (!res.success) {
-          throw new Error(`Media queue failed on node ${node.id}: ${res.error || 'Unknown error'}`);
+        const mediaItems = normalizeMediaItems(data, variables || {});
+        if (mediaItems.length === 0) {
+          throw new Error(`Media queue failed on node ${node.id}: Add at least one media item.`);
         }
-        log.push({
-          nodeId: node.id,
-          type,
-          status: 'queued_media',
-          outboxId: res.outboxId || null,
-          response: res,
-        });
-        await upsertCustomerAndLogOutbound(
-          caption || null,
-          mediaUrl || null,
-          'media'
-        );
+
+        for (const [index, item] of mediaItems.entries()) {
+          const mediaId = isLikelyMetaMediaId(item.metaMediaId) ? item.metaMediaId : null;
+          const caption =
+            item.caption || data.caption || data.message || variables?.message || `Media item ${index + 1}`;
+          const res = await queueOwnBspMediaMessage({
+            workspaceId,
+            channel: 'whatsapp',
+            recipient: String(phone),
+            caption,
+            mediaUrl: String(item.mediaUrl || ''),
+            mediaType: item.mediaType || data.mediaType || 'media',
+            payload: {
+              mediaId,
+              source: 'workflow',
+              workflowId: id,
+              nodeId: node.id,
+              mediaIndex: index,
+              mediaCount: mediaItems.length,
+            },
+          });
+          if (!res.success) {
+            throw new Error(`Media queue failed on node ${node.id} item ${index + 1}: ${res.error || 'Unknown error'}`);
+          }
+          log.push({
+            nodeId: node.id,
+            type,
+            status: 'queued_media',
+            mediaIndex: index,
+            mediaCount: mediaItems.length,
+            outboxId: res.outboxId || null,
+            response: res,
+          });
+          await upsertCustomerAndLogOutbound(
+            caption || null,
+            item.mediaUrl || null,
+            'media'
+          );
+        }
       }
 
       if (type === 'actionSaveContact') {
