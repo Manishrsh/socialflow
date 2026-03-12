@@ -236,7 +236,7 @@ function WorkflowBuilderContent({
     const existing = getNormalizedMessageButtons(nodeId);
     if (existing.length >= 10) return;
     const nextIndex = existing.length + 1;
-    const next = [...existing, { id: String(nextIndex), title: `Option ${nextIndex}` }];
+    const next = [...existing, { id: uuidv4(), title: `Option ${nextIndex}` }];
     updateMessageButtons(nodeId, next);
     const selectedNode = nodes.find((n) => n.id === nodeId);
     if (!Array.isArray(selectedNode?.data?.buttons) || selectedNode.data.buttons.length === 0) {
@@ -254,7 +254,7 @@ function WorkflowBuilderContent({
     updateMessageButtons(nodeId, next);
   };
 
-  const updateMessageButtonField = (nodeId: string, index: number, key: 'id' | 'title', value: string) => {
+  const updateMessageButtonField = (nodeId: string, index: number, key: 'title', value: string) => {
     const existing = getNormalizedMessageButtons(nodeId);
     const next = existing.map((b: any, i: number) => (i === index ? { ...b, [key]: value } : b));
     updateMessageButtons(nodeId, next);
@@ -692,18 +692,12 @@ function WorkflowBuilderContent({
                             <div className="space-y-2">
                               {selectedNode.data.buttons.map((btn: any, idx: number) => (
                                 <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                  <div className="col-span-12 text-[11px] text-foreground/50">
+                                    Option ID: {String(btn?.id || '')}
+                                  </div>
                                   <input
                                     type="text"
-                                    className="col-span-3 w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
-                                    placeholder={`ID ${idx + 1}`}
-                                    value={btn?.id || ''}
-                                    onChange={(e) =>
-                                      updateMessageButtonField(selectedNodeId, idx, 'id', e.target.value)
-                                    }
-                                  />
-                                  <input
-                                    type="text"
-                                    className="col-span-7 w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
+                                    className="col-span-10 w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
                                     placeholder={`Button text ${idx + 1}`}
                                     value={btn?.title || ''}
                                     onChange={(e) =>

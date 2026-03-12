@@ -343,6 +343,11 @@ function resolveExecutionPath(
           currentId = target;
           continue;
         }
+
+        // This node is interactive, but the current reply does not belong to it.
+        // Do not fall through to a default outgoing edge; wait for this node's own click.
+        path.push(node);
+        break;
       }
     }
 
