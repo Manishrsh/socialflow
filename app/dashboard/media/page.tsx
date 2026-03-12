@@ -27,6 +27,7 @@ export default function MediaLibraryPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [uploadedTitle, setUploadedTitle] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading, mutate } = useSWR(
@@ -92,6 +93,30 @@ export default function MediaLibraryPage() {
       alert('Media URL copied');
     } catch {
       alert('Failed to copy URL');
+    }
+  };
+
+  const handleDeleteMedia = async (mediaId: string) => {
+    if (!confirm('Delete this media item?')) return;
+
+    setDeletingId(mediaId);
+    try {
+      const response = await fetch(`/api/media/${mediaId}`, {
+        method: 'DELETE',
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(payload?.error || 'Failed to delete media');
+        return;
+      }
+
+      await mutate();
+    } catch (error) {
+      console.error('Delete media error:', error);
+      alert('Failed to delete media');
+    } finally {
+      setDeletingId((current) => (current === mediaId ? null : current));
     }
   };
 
@@ -238,7 +263,13 @@ export default function MediaLibraryPage() {
                   <Copy className="w-3 h-3" />
                   Copy URL
                 </Button>
-                <Button size="sm" variant="outline" className="flex-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => handleDeleteMedia(item.id)}
+                  disabled={deletingId === item.id}
+                >
                   <Trash2 className="w-3 h-3" />
                 </Button>
               </div>

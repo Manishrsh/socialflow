@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20', 10);
     const offset = (Math.max(1, page) - 1) * Math.max(1, limit);
     const mimePrefix = fileType ? `${fileType}%` : null;
+    const typeMatch = fileType || null;
 
     const rows = workspaceId
       ? mimePrefix
@@ -55,7 +56,10 @@ export async function GET(request: NextRequest) {
             INNER JOIN workspaces ws ON m.workspace_id = ws.id
             WHERE ws.owner_id = ${userId}
               AND m.workspace_id = ${workspaceId}
-              AND LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+              AND (
+                LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+                OR LOWER(COALESCE(m.type, '')) = ${typeMatch}
+              )
             ORDER BY m.created_at DESC
             LIMIT ${Math.max(1, limit)}
             OFFSET ${Math.max(0, offset)}
@@ -76,7 +80,10 @@ export async function GET(request: NextRequest) {
             FROM media m
             INNER JOIN workspaces ws ON m.workspace_id = ws.id
             WHERE ws.owner_id = ${userId}
-              AND LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+              AND (
+                LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+                OR LOWER(COALESCE(m.type, '')) = ${typeMatch}
+              )
             ORDER BY m.created_at DESC
             LIMIT ${Math.max(1, limit)}
             OFFSET ${Math.max(0, offset)}
@@ -99,7 +106,10 @@ export async function GET(request: NextRequest) {
             INNER JOIN workspaces ws ON m.workspace_id = ws.id
             WHERE ws.owner_id = ${userId}
               AND m.workspace_id = ${workspaceId}
-              AND LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+              AND (
+                LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+                OR LOWER(COALESCE(m.type, '')) = ${typeMatch}
+              )
           `
         : await sql`
             SELECT COUNT(*)::int AS count
@@ -114,7 +124,10 @@ export async function GET(request: NextRequest) {
             FROM media m
             INNER JOIN workspaces ws ON m.workspace_id = ws.id
             WHERE ws.owner_id = ${userId}
-              AND LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+              AND (
+                LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+                OR LOWER(COALESCE(m.type, '')) = ${typeMatch}
+              )
           `
         : await sql`
             SELECT COUNT(*)::int AS count
