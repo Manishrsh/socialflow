@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { WorkflowBuilder } from '@/components/workflow-builder';
 import { Node, Edge } from 'reactflow';
@@ -151,14 +150,6 @@ export default function WorkflowDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
-        <Button asChild variant="outline">
-          <Link href={`/dashboard/execution-logs?workflowId=${workflowId}`}>
-            View Execution Logs
-          </Link>
-        </Button>
-      </div>
-
       <div className="relative">
         <div className="absolute right-4 top-4 z-20 flex items-end gap-2 rounded-lg border bg-background/95 p-2 shadow">
         <Button variant={workflow.is_active ? 'outline' : 'default'} onClick={handleToggleActive}>
