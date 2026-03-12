@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { WorkflowBuilder } from '@/components/workflow-builder';
 import { Node, Edge } from 'reactflow';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import useSWR from 'swr';
 
 interface Workflow {
@@ -43,15 +43,6 @@ export default function WorkflowDetailPage() {
     revalidateOnFocus: true,
     dedupingInterval: 0,
   });
-  const { data: logsData, mutate: mutateLogs } = useSWR<{ logs: any[] }>(
-    `/api/workflows/${workflowId}/logs?limit=20`,
-    fetcher,
-    {
-      refreshInterval: 5000,
-      revalidateOnFocus: true,
-    }
-  );
-  const logs = logsData?.logs || [];
 
   const handleToggleActive = async () => {
     if (!workflow) return;
@@ -107,7 +98,6 @@ export default function WorkflowDetailPage() {
       }
 
       await mutateWorkflow();
-      await mutateLogs();
     } catch (error) {
       console.error('Save error:', error);
       alert(error instanceof Error ? error.message : 'Failed to save workflow');
@@ -136,7 +126,6 @@ export default function WorkflowDetailPage() {
       }
 
       alert(`Workflow executed. Steps executed: ${data.executedNodes}`);
-      await mutateLogs();
     } catch (err: any) {
       alert(err?.message || 'Execution failed');
     } finally {
@@ -162,6 +151,14 @@ export default function WorkflowDetailPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <Button asChild variant="outline">
+          <Link href={`/dashboard/execution-logs?workflowId=${workflowId}`}>
+            View Execution Logs
+          </Link>
+        </Button>
+      </div>
+
       <div className="relative">
         <div className="absolute right-4 top-4 z-20 flex items-end gap-2 rounded-lg border bg-background/95 p-2 shadow">
         <Button variant={workflow.is_active ? 'outline' : 'default'} onClick={handleToggleActive}>
@@ -188,48 +185,6 @@ export default function WorkflowDetailPage() {
           onSave={handleSave}
         />
       </div>
-
-      <Card className="p-4 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">Execution Logs</h2>
-            <p className="text-sm text-foreground/60">Background and manual workflow runs update here automatically.</p>
-          </div>
-          <Button variant="outline" onClick={() => mutateLogs()}>
-            Refresh Logs
-          </Button>
-        </div>
-
-        {logs.length === 0 ? (
-          <div className="text-sm text-foreground/60">No workflow logs yet.</div>
-        ) : (
-          <div className="space-y-3">
-            {logs.map((item: any) => (
-              <Card key={item.id} className="p-3 space-y-2">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">
-                      {item.status === 'ignored_duplicate' ? 'ignored duplicate' : item.status}
-                    </span>
-                    <span className="rounded bg-muted px-2 py-0.5 text-xs">{item.trigger_source}</span>
-                    <span className="text-xs text-foreground/60">{item.executed_nodes || 0} nodes</span>
-                  </div>
-                  <div className="text-xs text-foreground/60">
-                    {new Date(item.created_at).toLocaleString()}
-                  </div>
-                </div>
-                <div className="text-sm">{item.summary || 'No summary'}</div>
-                {item.phone ? (
-                  <div className="text-xs text-foreground/60">Phone: {item.phone}</div>
-                ) : null}
-                <pre className="max-h-56 overflow-auto rounded-lg bg-muted p-3 text-xs">
-                  {JSON.stringify(item.details || {}, null, 2)}
-                </pre>
-              </Card>
-            ))}
-          </div>
-        )}
-      </Card>
     </div>
   );
 }
