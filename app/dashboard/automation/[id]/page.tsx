@@ -23,7 +23,7 @@ const fetcher = async (url: string) => {
   const response = await fetch(url, { cache: 'no-store' });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data?.error || 'Request faileds');
+    throw new Error(data?.error || 'Request failedss');
   }
   return data;
 };
