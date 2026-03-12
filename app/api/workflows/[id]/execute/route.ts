@@ -29,6 +29,7 @@ interface FlowEdge {
 }
 
 const BACK_TO_MAIN_MENU_NODE_TYPE = 'systemBackToMainMenu';
+const MAIN_MENU_PROMPT_PREFIX = '__main_menu__:';
 
 function getMainMenuTargetNodeId(node: FlowNode, nodeById: Map<string, FlowNode>): string | null {
   const targetNodeId = String(node.data?.mainMenuNodeId || '').trim();
@@ -393,16 +394,6 @@ function resolveExecutionPath(
     }
 
     path.push(node);
-    if (String(node.type || '').startsWith('action')) {
-      const mainMenuTargetNodeId = getMainMenuTargetNodeId(node, nodeById);
-      if (mainMenuTargetNodeId) {
-        visited.delete(mainMenuTargetNodeId);
-        currentReplyId = '';
-        currentReplyTitle = '';
-        currentId = mainMenuTargetNodeId;
-        continue;
-      }
-    }
     const next = outgoing.get(currentId) || [];
     if (next.length === 0) break;
 
@@ -470,6 +461,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const publicBaseUrl = resolvePublicBaseUrl(request);
     const nodes = toArray(workflow.nodes) as FlowNode[];
     const edges = toArray(workflow.edges) as FlowEdge[];
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const orderedNodes = resolveExecutionOrder(nodes, edges);
     const executionNodes = resolveExecutionPath(nodes, edges, variables || {});
     const allNodeTypes = orderedNodes.map((n) => n.type || '');
@@ -477,6 +469,65 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const log: Array<Record<string, any>> = [];
     let replyAlreadyConsumed = false;
     executionLogId = randomUUID();
+
+    const enqueueMainMenuPrompt = async (node: FlowNode) => {
+      const mainMenuTargetNodeId = getMainMenuTargetNodeId(node, nodeById);
+      if (!mainMenuTargetNodeId) return;
+
+      const buttonTitle = String(node.data?.mainMenuButtonTitle || 'Go Back To Main Menu').trim().slice(0, 20);
+      const promptText = String(
+        node.data?.mainMenuPromptText || 'Would you like to go back to the main menu?'
+      ).trim();
+
+      const promptResult = await queueOwnBspMessage({
+        workspaceId,
+        channel: 'whatsapp',
+        recipient: String(phone),
+        message: promptText,
+        messageType: 'interactive_button',
+        payload: {
+          buttons: [
+            {
+              id: `${MAIN_MENU_PROMPT_PREFIX}${mainMenuTargetNodeId}`,
+              title: buttonTitle || 'Main Menu',
+            },
+          ],
+          source: 'workflow_main_menu_prompt',
+          workflowId: id,
+          nodeId: node.id,
+        },
+      });
+
+      if (!promptResult.success) {
+        throw new Error(`Main menu prompt failed on node ${node.id}: ${promptResult.error || 'Unknown error'}`);
+      }
+
+      await sql`
+        DELETE FROM workflow_wait_states
+        WHERE workspace_id = ${workspaceId}
+          AND workflow_id = ${id}
+          AND phone = ${String(phone)}
+      `;
+      await sql`
+        INSERT INTO workflow_wait_states (workspace_id, workflow_id, node_id, phone, expires_at)
+        VALUES (
+          ${workspaceId},
+          ${id},
+          ${mainMenuTargetNodeId},
+          ${String(phone)},
+          CURRENT_TIMESTAMP + INTERVAL '2 days'
+        )
+      `;
+
+      log.push({
+        nodeId: node.id,
+        type: 'systemBackToMainMenuPrompt',
+        status: 'queued_main_menu_prompt',
+        targetMenuNodeId: mainMenuTargetNodeId,
+        outboxId: promptResult.outboxId || null,
+        response: promptResult,
+      });
+    };
 
     await sql`
       INSERT INTO workflow_execution_logs (
@@ -573,6 +624,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             null,
             'template'
           );
+          await enqueueMainMenuPrompt(node);
         } else {
           const buttons = normalizeNodeButtons(data);
           const shouldUseListForButtons =
@@ -673,6 +725,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               )
             `;
           }
+          if (finalMessageType !== 'interactive_button' && finalMessageType !== 'interactive_list') {
+            await enqueueMainMenuPrompt(node);
+          }
         }
       }
 
@@ -721,6 +776,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             'media'
           );
         }
+        await enqueueMainMenuPrompt(node);
       }
 
       if (type === 'actionSaveContact') {
@@ -734,6 +790,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           throw new Error(`Contact save failed on node ${node.id}: ${res.error || 'Unknown error'}`);
         }
         log.push({ nodeId: node.id, type, status: 'saved_contact', response: res });
+        await enqueueMainMenuPrompt(node);
       }
     }
 

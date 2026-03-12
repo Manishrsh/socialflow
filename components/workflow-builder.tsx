@@ -502,7 +502,7 @@ function WorkflowBuilderContent({
       <div className="rounded-lg border p-3 space-y-3">
         <div className="text-sm font-medium">Back To Main Menu</div>
         <div className="text-xs text-foreground/60">
-          After this action finishes, send the selected menu again so the user can choose another option.
+          After this action finishes, send a clickable button so the user can choose to go back to the main menu.
         </div>
         <select
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
@@ -521,6 +521,24 @@ function WorkflowBuilderContent({
             </option>
           ))}
         </select>
+        {currentNodeData?.mainMenuNodeId ? (
+          <>
+            <input
+              type="text"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              placeholder="Prompt text"
+              value={currentNodeData?.mainMenuPromptText || ''}
+              onChange={(e) => updateNodeData(currentNodeId, 'mainMenuPromptText', e.target.value)}
+            />
+            <input
+              type="text"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              placeholder="Button title"
+              value={currentNodeData?.mainMenuButtonTitle || ''}
+              onChange={(e) => updateNodeData(currentNodeId, 'mainMenuButtonTitle', e.target.value)}
+            />
+          </>
+        ) : null}
       </div>
     );
   };
