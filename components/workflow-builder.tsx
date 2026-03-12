@@ -148,6 +148,37 @@ function WorkflowBuilderContent({
   }, [initialDescription]);
 
   useEffect(() => {
+    if (!selectedNodeId) return;
+    const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+    if (selectedNode?.type !== 'actionSendMessage') return;
+    if (Array.isArray(selectedNode?.data?.buttons) && selectedNode.data.buttons.length > 0) return;
+
+    const nextUpdates: Array<{ key: string; value: string }> = [];
+    if (String(selectedNode?.data?.button1Title || '').trim() && !String(selectedNode?.data?.button1Id || '').trim()) {
+      nextUpdates.push({ key: 'button1Id', value: uuidv4() });
+    }
+    if (String(selectedNode?.data?.button2Title || '').trim() && !String(selectedNode?.data?.button2Id || '').trim()) {
+      nextUpdates.push({ key: 'button2Id', value: uuidv4() });
+    }
+
+    if (nextUpdates.length === 0) return;
+
+    setNodes((nds) =>
+      nds.map((node) =>
+        node.id !== selectedNodeId
+          ? node
+          : {
+              ...node,
+              data: {
+                ...node.data,
+                ...Object.fromEntries(nextUpdates.map((item) => [item.key, item.value])),
+              },
+            }
+      )
+    );
+  }, [nodes, selectedNodeId, setNodes]);
+
+  useEffect(() => {
     setNodes(initialNodes);
     setSelectedNodeId(null);
     setLinkSourceNodeId(null);
@@ -732,16 +763,12 @@ function WorkflowBuilderContent({
                             </div>
                           ) : (
                             <div className="grid grid-cols-2 gap-2">
+                              <div className="col-span-2 text-[11px] text-foreground/50">
+                                Button 1 ID: {String(selectedNode?.data.button1Id || '')}
+                              </div>
                               <input
                                 type="text"
-                                className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
-                                placeholder="Button 1 ID"
-                                value={selectedNode?.data.button1Id || ''}
-                                onChange={(e) => updateNodeData(selectedNodeId, 'button1Id', e.target.value)}
-                              />
-                              <input
-                                type="text"
-                                className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
+                                className="col-span-2 w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
                                 placeholder="Button 1 Text"
                                 value={selectedNode?.data.button1Title || ''}
                                 onChange={(e) => updateNodeData(selectedNodeId, 'button1Title', e.target.value)}
@@ -764,18 +791,14 @@ function WorkflowBuilderContent({
                               </select>
                               <input
                                 type="text"
-                                className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
-                                placeholder="Button 2 ID"
-                                value={selectedNode?.data.button2Id || ''}
-                                onChange={(e) => updateNodeData(selectedNodeId, 'button2Id', e.target.value)}
-                              />
-                              <input
-                                type="text"
-                                className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
+                                className="col-span-2 w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
                                 placeholder="Button 2 Text"
                                 value={selectedNode?.data.button2Title || ''}
                                 onChange={(e) => updateNodeData(selectedNodeId, 'button2Title', e.target.value)}
                               />
+                              <div className="col-span-2 text-[11px] text-foreground/50">
+                                Button 2 ID: {String(selectedNode?.data.button2Id || '')}
+                              </div>
                               <select
                                 className="col-span-2 w-full px-3 py-2 border border-border rounded-lg bg-background text-xs"
                                 value={buttonRoutes[String(selectedNode?.data.button2Id || '2')] || ''}
