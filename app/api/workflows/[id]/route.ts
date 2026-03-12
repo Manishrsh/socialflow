@@ -3,6 +3,9 @@ import { sql, ensureCoreSchema } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 interface RouteParams {
   params: Promise<{
     id: string;
@@ -39,17 +42,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const workflow = workflows[0];
-    return NextResponse.json({
-      ...workflow,
-      nodes:
-        typeof workflow.nodes === 'string'
-          ? JSON.parse(workflow.nodes || '[]')
-          : (workflow.nodes || []),
-      edges:
-        typeof workflow.edges === 'string'
-          ? JSON.parse(workflow.edges || '[]')
-          : (workflow.edges || []),
-    });
+    return NextResponse.json(
+      {
+        ...workflow,
+        nodes:
+          typeof workflow.nodes === 'string'
+            ? JSON.parse(workflow.nodes || '[]')
+            : (workflow.nodes || []),
+        edges:
+          typeof workflow.edges === 'string'
+            ? JSON.parse(workflow.edges || '[]')
+            : (workflow.edges || []),
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+        },
+      }
+    );
   } catch (error) {
     console.error('Workflow fetch error:', error);
     return NextResponse.json(
@@ -91,6 +101,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         AND workspace_id IN (
           SELECT id FROM workspaces WHERE owner_id = ${userId}
         )
+    `;
+
+    await sql`
+      DELETE FROM workflow_wait_states
+      WHERE workflow_id = ${id}
     `;
 
     return NextResponse.json({ message: 'Workflow updated successfully' });

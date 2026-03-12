@@ -41,6 +41,7 @@ export default function WorkflowDetailPage() {
   } = useSWR<Workflow>(`/api/workflows/${workflowId}`, fetcher, {
     refreshInterval: 5000,
     revalidateOnFocus: true,
+    dedupingInterval: 0,
   });
   const { data: logsData, mutate: mutateLogs } = useSWR<{ logs: any[] }>(
     `/api/workflows/${workflowId}/logs?limit=20`,

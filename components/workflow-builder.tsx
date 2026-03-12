@@ -148,6 +148,17 @@ function WorkflowBuilderContent({
   }, [initialDescription]);
 
   useEffect(() => {
+    setNodes(initialNodes);
+    setSelectedNodeId(null);
+    setLinkSourceNodeId(null);
+  }, [initialNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(initialEdges);
+    setLinkSourceNodeId(null);
+  }, [initialEdges, setEdges]);
+
+  useEffect(() => {
     const selectedNode = nodes.find((n) => n.id === selectedNodeId);
     if (!selectedNode || selectedNode.type !== 'actionSendMedia' || !workspace?.id) {
       return;
