@@ -45,37 +45,86 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '20', 10);
     const offset = (Math.max(1, page) - 1) * Math.max(1, limit);
+    const mimePrefix = fileType ? `${fileType}%` : null;
 
-    const workspaceFilter = workspaceId
-      ? await sql`
-          SELECT m.*
-          FROM media m
-          INNER JOIN workspaces ws ON m.workspace_id = ws.id
-          WHERE ws.owner_id = ${userId} AND m.workspace_id = ${workspaceId}
-          ORDER BY m.created_at DESC
-          LIMIT ${Math.max(1, limit)}
-          OFFSET ${Math.max(0, offset)}
-        `
-      : await sql`
-          SELECT m.*
-          FROM media m
-          INNER JOIN workspaces ws ON m.workspace_id = ws.id
-          WHERE ws.owner_id = ${userId}
-          ORDER BY m.created_at DESC
-          LIMIT ${Math.max(1, limit)}
-          OFFSET ${Math.max(0, offset)}
-        `;
+    const rows = workspaceId
+      ? mimePrefix
+        ? await sql`
+            SELECT m.*
+            FROM media m
+            INNER JOIN workspaces ws ON m.workspace_id = ws.id
+            WHERE ws.owner_id = ${userId}
+              AND m.workspace_id = ${workspaceId}
+              AND LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+            ORDER BY m.created_at DESC
+            LIMIT ${Math.max(1, limit)}
+            OFFSET ${Math.max(0, offset)}
+          `
+        : await sql`
+            SELECT m.*
+            FROM media m
+            INNER JOIN workspaces ws ON m.workspace_id = ws.id
+            WHERE ws.owner_id = ${userId}
+              AND m.workspace_id = ${workspaceId}
+            ORDER BY m.created_at DESC
+            LIMIT ${Math.max(1, limit)}
+            OFFSET ${Math.max(0, offset)}
+          `
+      : mimePrefix
+        ? await sql`
+            SELECT m.*
+            FROM media m
+            INNER JOIN workspaces ws ON m.workspace_id = ws.id
+            WHERE ws.owner_id = ${userId}
+              AND LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+            ORDER BY m.created_at DESC
+            LIMIT ${Math.max(1, limit)}
+            OFFSET ${Math.max(0, offset)}
+          `
+        : await sql`
+            SELECT m.*
+            FROM media m
+            INNER JOIN workspaces ws ON m.workspace_id = ws.id
+            WHERE ws.owner_id = ${userId}
+            ORDER BY m.created_at DESC
+            LIMIT ${Math.max(1, limit)}
+            OFFSET ${Math.max(0, offset)}
+          `;
 
-    const typed = fileType
-      ? workspaceFilter.filter((row: any) =>
-          String(row.mime_type || '')
-            .toLowerCase()
-            .startsWith(fileType)
-        )
-      : workspaceFilter;
+    const totalRows = workspaceId
+      ? mimePrefix
+        ? await sql`
+            SELECT COUNT(*)::int AS count
+            FROM media m
+            INNER JOIN workspaces ws ON m.workspace_id = ws.id
+            WHERE ws.owner_id = ${userId}
+              AND m.workspace_id = ${workspaceId}
+              AND LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+          `
+        : await sql`
+            SELECT COUNT(*)::int AS count
+            FROM media m
+            INNER JOIN workspaces ws ON m.workspace_id = ws.id
+            WHERE ws.owner_id = ${userId}
+              AND m.workspace_id = ${workspaceId}
+          `
+      : mimePrefix
+        ? await sql`
+            SELECT COUNT(*)::int AS count
+            FROM media m
+            INNER JOIN workspaces ws ON m.workspace_id = ws.id
+            WHERE ws.owner_id = ${userId}
+              AND LOWER(COALESCE(m.mime_type, '')) LIKE ${mimePrefix}
+          `
+        : await sql`
+            SELECT COUNT(*)::int AS count
+            FROM media m
+            INNER JOIN workspaces ws ON m.workspace_id = ws.id
+            WHERE ws.owner_id = ${userId}
+          `;
 
     const publicOrigin = getPublicOrigin(request);
-    const media = typed.map((row: any) => ({
+    const media = rows.map((row: any) => ({
       id: row.id,
       title: row.name || 'Untitled',
       file_name: row.name || 'file',
@@ -87,7 +136,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       media,
-      total: media.length,
+      total: Number(totalRows?.[0]?.count || 0),
       page: Math.max(1, page),
       limit: Math.max(1, limit),
     });
