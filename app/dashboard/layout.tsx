@@ -257,7 +257,7 @@ export default function DashboardLayout({
 
         {/* Page content */}
         <main className="flex-1 overflow-auto">
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className={`p-6 transition-all duration-300 ${sidebarCollapsed ? 'w-full max-w-none' : 'max-w-7xl mx-auto'}`}>
             {children}
           </div>
         </main>
