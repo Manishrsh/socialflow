@@ -1,12 +1,15 @@
 import type { Metadata, Viewport } from 'next'
 import { Analytics } from '@vercel/analytics/next'
 import { AuthProvider } from '@/lib/auth-context'
+import { PwaProvider } from '@/components/pwa-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
+  applicationName: 'WareChat',
   title: 'WareChat Pro - WhatsApp Automation for Jewelry Shops',
   description: 'Professional WhatsApp automation platform for jewelry businesses. Manage customers, broadcast messages, and automate workflows.',
   generator: 'v0.app',
+  manifest: '/manifest.webmanifest',
   icons: {
     icon: [
       {
@@ -29,8 +32,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  themeColor: '#111111',
 }
 
 export default function RootLayout({
@@ -41,10 +43,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased" suppressHydrationWarning>
-        <AuthProvider>
-          {children}
-          <Analytics />
-        </AuthProvider>
+        <PwaProvider>
+          <AuthProvider>
+            {children}
+            <Analytics />
+          </AuthProvider>
+        </PwaProvider>
       </body>
     </html>
   )

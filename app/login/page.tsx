@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
+import { PwaInstallButton } from '@/components/pwa-install-button';
 import Link from 'next/link';
 import { AlertCircle } from 'lucide-react';
 
@@ -47,6 +48,9 @@ export default function LoginPage() {
           </div>
           <h1 className="text-2xl font-bold">WareChat Pro</h1>
           <p className="text-sm text-foreground/60 mt-1">WhatsApp Automation for Jewelry Shops</p>
+          <div className="mt-4 flex justify-center">
+            <PwaInstallButton />
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

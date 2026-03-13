@@ -6,7 +6,12 @@ const VAPID_PUBLIC_KEY =
   process.env.VAPID_PUBLIC_KEY ||
   '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+const rawVapidSubject = (process.env.VAPID_SUBJECT || '').trim();
+const VAPID_SUBJECT = rawVapidSubject
+  ? rawVapidSubject.includes(':')
+    ? rawVapidSubject
+    : `mailto:${rawVapidSubject}`
+  : 'mailto:admin@example.com';
 
 let vapidConfigured = false;
 

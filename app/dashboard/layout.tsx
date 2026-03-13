@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
+import { PwaInstallButton } from '@/components/pwa-install-button';
 import { 
   BarChart3, 
   Bell,
@@ -387,18 +388,21 @@ export default function DashboardLayout({
             <div className="text-sm text-foreground/60">
               Welcome back, <span className="font-semibold">{user.name}</span>
             </div>
-            {notificationPermission !== 'unsupported' ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={enableNotifications}
-                disabled={isUpdatingPush || isPushSubscribed}
-              >
-                <Bell className="mr-2 h-4 w-4" />
-                {isPushSubscribed ? 'Alerts On' : isUpdatingPush ? 'Enabling...' : 'Enable Alerts'}
-              </Button>
-            ) : null}
+            <div className="flex items-center gap-2">
+              <PwaInstallButton />
+              {notificationPermission !== 'unsupported' ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={enableNotifications}
+                  disabled={isUpdatingPush || isPushSubscribed}
+                >
+                  <Bell className="mr-2 h-4 w-4" />
+                  {isPushSubscribed ? 'Alerts On' : isUpdatingPush ? 'Enabling...' : 'Enable Alerts'}
+                </Button>
+              ) : null}
+            </div>
           </div>
         </header>
 

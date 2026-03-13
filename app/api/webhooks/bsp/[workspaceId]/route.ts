@@ -219,6 +219,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             body: notificationBody,
             tag: `workspace-${workspaceId}-messages`,
             url: '/dashboard/messages',
+            icon: '/icon-light-32x32.png',
+            badge: '/icon-light-32x32.png',
           });
         }
       } catch {
