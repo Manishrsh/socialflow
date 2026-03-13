@@ -4,14 +4,23 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   ArrowLeft,
   CheckCheck,
+  Download,
   Image as ImageIcon,
   Instagram,
   MessageSquare,
   Search,
   Send,
+  Smartphone,
 } from 'lucide-react';
 import useSWR from 'swr';
 
@@ -75,6 +84,8 @@ export default function MessagesPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
+  const [isExportingAll, setIsExportingAll] = useState(false);
+  const [isExportingThread, setIsExportingThread] = useState(false);
   const [showMobileThread, setShowMobileThread] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -85,8 +96,9 @@ export default function MessagesPage() {
       : null,
     fetcher,
     {
-      refreshInterval: 5000,
+      refreshInterval: 2000,
       revalidateOnFocus: true,
+      refreshWhenHidden: true,
       dedupingInterval: 0,
     }
   );
@@ -110,8 +122,9 @@ export default function MessagesPage() {
       : null,
     fetcher,
     {
-      refreshInterval: 4000,
+      refreshInterval: 1500,
       revalidateOnFocus: true,
+      refreshWhenHidden: true,
       dedupingInterval: 0,
     }
   );
@@ -153,20 +166,75 @@ export default function MessagesPage() {
     }
   };
 
+  const handleExport = async (scope: 'all' | 'thread') => {
+    if (!workspace?.id) return;
+    if (scope === 'thread' && !selectedCustomerId) return;
+
+    scope === 'all' ? setIsExportingAll(true) : setIsExportingThread(true);
+    try {
+      const exportUrl =
+        scope === 'all'
+          ? `/api/messages/export?workspaceId=${workspace.id}`
+          : `/api/messages/export?workspaceId=${workspace.id}&customerId=${selectedCustomerId}`;
+
+      const response = await fetch(exportUrl, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = scope === 'all' ? 'all-messages.csv' : `thread-${selectedCustomerId}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alert(error?.message || 'Failed to export messages');
+    } finally {
+      scope === 'all' ? setIsExportingAll(false) : setIsExportingThread(false);
+    }
+  };
+
+  const selectedChannel = selectedThread ? channelMeta(selectedThread.source) : null;
+  const SelectedChannelIcon = selectedChannel?.icon;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Messages</h1>
-          <p className="mt-2 text-foreground/60">WhatsApp-style inbox for your customer conversations.</p>
-        </div>
-        <div className="hidden rounded-2xl border bg-card px-4 py-3 text-sm text-foreground/60 lg:block">
-          Live updates every few seconds
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-3xl font-bold">Messages</h1>
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 rounded-2xl border bg-card px-4 py-3 text-sm text-foreground/60 lg:inline-flex">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            Live refresh every 1.5-2s
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9 rounded-full">
+                <Download className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem onClick={() => handleExport('all')} disabled={isExportingAll || !workspace}>
+                <Download className="h-4 w-4" />
+                {isExportingAll ? 'Exporting all...' : 'Export all chats'}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleExport('thread')}
+                disabled={isExportingThread || !selectedCustomerId}
+              >
+                <Download className="h-4 w-4" />
+                {isExportingThread ? 'Exporting chat...' : 'Export current chat'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      <div className="grid min-h-[72vh] grid-cols-1 overflow-hidden rounded-[28px] border bg-card shadow-sm lg:grid-cols-[360px_minmax(0,1fr)]">
-        <div className={`${showMobileThread ? 'hidden lg:flex' : 'flex'} min-h-[72vh] flex-col border-r bg-[#f7f5ef]`}>
+      <div className="relative mx-auto grid min-h-[calc(100dvh-14rem)] grid-cols-1 overflow-hidden rounded-[28px] border bg-card shadow-sm lg:grid-cols-[360px_minmax(0,1fr)] xl:min-h-[76vh] xl:max-w-[1500px]">
+        <div className={`${showMobileThread ? 'hidden lg:flex' : 'flex'} min-h-[calc(100dvh-14rem)] flex-col border-r bg-[#f7f5ef] xl:min-h-[76vh]`}>
           <div className="border-b bg-card/80 p-4 backdrop-blur">
             <div className="mb-3 flex items-center justify-between">
               <div>
@@ -249,7 +317,7 @@ export default function MessagesPage() {
           </div>
         </div>
 
-        <div className={`${showMobileThread ? 'flex' : 'hidden lg:flex'} min-h-[72vh] flex-col bg-[#efeae2]`}>
+        <div className={`${showMobileThread ? 'fixed inset-0 z-20 flex bg-[#efeae2] lg:static' : 'hidden lg:flex'} min-h-[calc(100dvh-14rem)] flex-col bg-[#efeae2] xl:min-h-[76vh]`}>
           {!selectedThread ? (
             <div className="flex h-full items-center justify-center p-8 text-foreground/60">
               Select a conversation
@@ -271,12 +339,13 @@ export default function MessagesPage() {
                   <div className="truncate font-semibold">{selectedThread.name}</div>
                   <div className="text-xs text-foreground/60">{selectedThread.phone}</div>
                 </div>
-                <div className={`hidden items-center gap-1 rounded-full border px-3 py-1 text-xs sm:inline-flex ${channelMeta(selectedThread.source).chipClass}`}>
-                  {(() => {
-                    const ChannelIcon = channelMeta(selectedThread.source).icon;
-                    return <ChannelIcon className="h-3 w-3" />;
-                  })()}
-                  {channelMeta(selectedThread.source).label}
+                <div className={`hidden items-center gap-1 rounded-full border px-3 py-1 text-xs sm:inline-flex ${selectedChannel?.chipClass || ''}`}>
+                  {SelectedChannelIcon ? <SelectedChannelIcon className="h-3 w-3" /> : null}
+                  {selectedChannel?.label}
+                </div>
+                <div className="hidden items-center gap-1 rounded-full bg-black px-3 py-1 text-xs font-medium text-white md:inline-flex">
+                  <Smartphone className="h-3 w-3" />
+                  Mobile-ready
                 </div>
               </div>
 
