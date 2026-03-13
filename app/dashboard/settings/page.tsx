@@ -5,6 +5,11 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  DEVICE_HOME_SCREEN_KEY,
+  DEVICE_HOME_SCREEN_OPTIONS,
+  MOBILE_TOPBAR_HIDDEN_KEY,
+} from '@/lib/device-preferences';
 import { Settings, Key, Bell, Lock } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -18,6 +23,8 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [apiKeyRaw, setApiKeyRaw] = useState('');
+  const [deviceHomeScreen, setDeviceHomeScreen] = useState('/dashboard');
+  const [hideMobileTopbar, setHideMobileTopbar] = useState(false);
 
   const loadSettings = async () => {
     if (!workspace?.id) return;
@@ -46,6 +53,13 @@ export default function SettingsPage() {
   useEffect(() => {
     loadSettings();
   }, [workspace?.id, workspace?.name]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    setDeviceHomeScreen(window.localStorage.getItem(DEVICE_HOME_SCREEN_KEY) || '/dashboard');
+    setHideMobileTopbar(window.localStorage.getItem(MOBILE_TOPBAR_HIDDEN_KEY) === 'true');
+  }, []);
 
   const saveSettings = async (regenerateApiKey: boolean) => {
     if (!workspace?.id) {
@@ -101,6 +115,15 @@ export default function SettingsPage() {
     } catch (error: any) {
       setStatusText(error?.message || 'Failed to copy API key');
     }
+  };
+
+  const saveDevicePreferences = () => {
+    if (typeof window === 'undefined') return;
+
+    window.localStorage.setItem(DEVICE_HOME_SCREEN_KEY, deviceHomeScreen);
+    window.localStorage.setItem(MOBILE_TOPBAR_HIDDEN_KEY, String(hideMobileTopbar));
+    window.dispatchEvent(new Event('storage'));
+    setStatusText('This device preference saved');
   };
 
   return (
@@ -201,6 +224,43 @@ export default function SettingsPage() {
             <input type="checkbox" className="w-4 h-4" />
             <span className="text-sm">Workflow failure alerts</span>
           </label>
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <Settings className="w-5 h-5" />
+          This Device
+        </h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">First screen on this device</label>
+            <select
+              value={deviceHomeScreen}
+              onChange={(e) => setDeviceHomeScreen(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {DEVICE_HOME_SCREEN_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={hideMobileTopbar}
+              onChange={(e) => setHideMobileTopbar(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <span className="text-sm">Hide top bar on mobile screen</span>
+          </label>
+
+          <Button type="button" onClick={saveDevicePreferences}>
+            Save Device Preferences
+          </Button>
         </div>
       </Card>
 

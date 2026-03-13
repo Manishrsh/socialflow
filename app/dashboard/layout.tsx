@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { PwaInstallButton } from '@/components/pwa-install-button';
+import { MOBILE_TOPBAR_HIDDEN_KEY } from '@/lib/device-preferences';
 import { 
   BarChart3, 
   Bell,
@@ -55,6 +56,7 @@ export default function DashboardLayout({
   const [pushPublicKey, setPushPublicKey] = useState('');
   const [isPushSubscribed, setIsPushSubscribed] = useState(false);
   const [isUpdatingPush, setIsUpdatingPush] = useState(false);
+  const [hideMobileTopbar, setHideMobileTopbar] = useState(false);
 
   useEffect(() => {
     const savedState = window.localStorage.getItem('dashboard-sidebar-collapsed');
@@ -64,6 +66,21 @@ export default function DashboardLayout({
   useEffect(() => {
     window.localStorage.setItem('dashboard-sidebar-collapsed', String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const syncTopbarPreference = () => {
+      setHideMobileTopbar(window.localStorage.getItem(MOBILE_TOPBAR_HIDDEN_KEY) === 'true');
+    };
+
+    syncTopbarPreference();
+    window.addEventListener('storage', syncTopbarPreference);
+
+    return () => {
+      window.removeEventListener('storage', syncTopbarPreference);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -366,7 +383,7 @@ export default function DashboardLayout({
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
         <header className="border-b border-border bg-background">
-          <div className="flex items-center justify-between px-4 py-4">
+          <div className={`flex items-center justify-between px-4 py-4 ${hideMobileTopbar ? 'hidden md:flex' : ''}`}>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setSidebarOpen(true)}

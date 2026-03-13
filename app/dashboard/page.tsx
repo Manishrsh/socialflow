@@ -1,13 +1,26 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { DEVICE_HOME_SCREEN_KEY } from '@/lib/device-preferences';
 import { ArrowRight, Zap, Users, MessageSquare, BarChart3, Send } from 'lucide-react';
 import Link from 'next/link';
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { user, workspace } = useAuth();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const preferredPath = window.localStorage.getItem(DEVICE_HOME_SCREEN_KEY) || '/dashboard';
+    if (preferredPath && preferredPath !== '/dashboard') {
+      router.replace(preferredPath);
+    }
+  }, [router]);
 
   const stats = [
     {
