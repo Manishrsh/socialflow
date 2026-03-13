@@ -185,6 +185,10 @@ export default function SettingsPage() {
           Notifications
         </h2>
         <div className="space-y-3">
+          <div className="rounded-lg border bg-muted/40 p-3 text-sm text-foreground/70">
+            Browser push alerts work even when the site is closed after you configure
+            `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`.
+          </div>
           <label className="flex items-center gap-3 cursor-pointer">
             <input type="checkbox" defaultChecked className="w-4 h-4" />
             <span className="text-sm">Email notifications for new messages</span>

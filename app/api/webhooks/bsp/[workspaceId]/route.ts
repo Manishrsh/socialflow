@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql, ensureCoreSchema } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { mapInboundEvent } from '@/lib/bsp-webhook-mappers';
+import { isPushConfigured, sendPushToWorkspace } from '@/lib/push';
 
 interface RouteParams {
   params: Promise<{
@@ -204,6 +205,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${normalized.mediaUrl || null}
         )
       `;
+
+      try {
+        if (isPushConfigured()) {
+          const notificationBody = normalized.message
+            ? String(normalized.message).slice(0, 140)
+            : normalized.mediaUrl
+              ? 'New media message'
+              : 'You received a new message';
+
+          await sendPushToWorkspace(workspaceId, {
+            title: normalized.phone ? `New message from ${normalized.phone}` : 'New message',
+            body: notificationBody,
+            tag: `workspace-${workspaceId}-messages`,
+            url: '/dashboard/messages',
+          });
+        }
+      } catch {
+        // Do not block webhook processing on push delivery.
+      }
     }
 
     // Background automation trigger for active workflows with supported inbound trigger nodes.

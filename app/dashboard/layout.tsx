@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { 
   BarChart3, 
+  Bell,
   MessageSquare, 
   Users, 
   Zap, 
@@ -29,6 +30,15 @@ interface NavItem {
   badge?: string;
 }
 
+const fetcher = async (url: string) => {
+  const response = await fetch(url, { cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || 'Request failed');
+  }
+  return data;
+};
+
 export default function DashboardLayout({
   children,
 }: {
@@ -39,6 +49,11 @@ export default function DashboardLayout({
   const { user, workspace, logout, isLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>('unsupported');
+  const [pushConfigured, setPushConfigured] = useState(false);
+  const [pushPublicKey, setPushPublicKey] = useState('');
+  const [isPushSubscribed, setIsPushSubscribed] = useState(false);
+  const [isUpdatingPush, setIsUpdatingPush] = useState(false);
 
   useEffect(() => {
     const savedState = window.localStorage.getItem('dashboard-sidebar-collapsed');
@@ -48,6 +63,64 @@ export default function DashboardLayout({
   useEffect(() => {
     window.localStorage.setItem('dashboard-sidebar-collapsed', String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setNotificationPermission('unsupported');
+      return;
+    }
+    setNotificationPermission(window.Notification.permission);
+  }, []);
+
+  useEffect(() => {
+    if (!workspace?.id || typeof window === 'undefined') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncPushState = async () => {
+      try {
+        const config = await fetcher('/api/push/public-key');
+        if (cancelled) return;
+        setPushConfigured(Boolean(config?.configured));
+        setPushPublicKey(String(config?.publicKey || ''));
+
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+          return;
+        }
+
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        const subscription = await registration.pushManager.getSubscription();
+        if (!cancelled) {
+          setIsPushSubscribed(Boolean(subscription));
+        }
+
+        if (subscription && config?.configured && workspace?.id) {
+          await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workspaceId: workspace.id,
+              subscription: subscription.toJSON(),
+            }),
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setPushConfigured(false);
+          setPushPublicKey('');
+          setIsPushSubscribed(false);
+        }
+      }
+    };
+
+    void syncPushState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace?.id]);
 
   const navItems: NavItem[] = [
     {
@@ -132,6 +205,68 @@ export default function DashboardLayout({
       router.push('/login');
     } catch (error) {
       console.error('Logout failed:', error);
+    }
+  };
+
+  const urlBase64ToUint8Array = (base64String: string) => {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+  };
+
+  const enableNotifications = async () => {
+    if (
+      typeof window === 'undefined' ||
+      !('Notification' in window) ||
+      !workspace?.id ||
+      !('serviceWorker' in navigator) ||
+      !('PushManager' in window)
+    ) {
+      return;
+    }
+
+    setIsUpdatingPush(true);
+    try {
+      const permission = await window.Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission !== 'granted') {
+        return;
+      }
+
+      if (!pushConfigured || !pushPublicKey) {
+        throw new Error('Push notifications are not configured yet. Add VAPID keys first.');
+      }
+
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(pushPublicKey),
+        });
+      }
+
+      const response = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId: workspace.id,
+          subscription: subscription.toJSON(),
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to enable push alerts');
+      }
+
+      setIsPushSubscribed(true);
+    } catch (error: any) {
+      alert(error?.message || 'Failed to enable notifications');
+    } finally {
+      setIsUpdatingPush(false);
     }
   };
 
@@ -252,6 +387,18 @@ export default function DashboardLayout({
             <div className="text-sm text-foreground/60">
               Welcome back, <span className="font-semibold">{user.name}</span>
             </div>
+            {notificationPermission !== 'unsupported' ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={enableNotifications}
+                disabled={isUpdatingPush || isPushSubscribed}
+              >
+                <Bell className="mr-2 h-4 w-4" />
+                {isPushSubscribed ? 'Alerts On' : isUpdatingPush ? 'Enabling...' : 'Enable Alerts'}
+              </Button>
+            ) : null}
           </div>
         </header>
 
