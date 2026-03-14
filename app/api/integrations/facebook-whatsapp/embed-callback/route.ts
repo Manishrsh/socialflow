@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   try {
     await ensureCoreSchema();
     const url = new URL(request.url);
-    
+
     // Log ALL query parameters to see what Meta is sending
     const allParams: any = {};
     for (const [key, value] of url.searchParams.entries()) {
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       console.log(`[v0] Query param: ${key} = ${value}`);
     }
     console.log('[v0] All callback parameters:', allParams);
-    
+
     const workspaceId = url.searchParams.get('workspaceId');
     const accessToken = url.searchParams.get('access_token');
     const phoneNumberId = url.searchParams.get('phone_number_id');
@@ -200,5 +200,157 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('[v0] Embed callback error:', error);
     return NextResponse.redirect(new URL('/dashboard?whatsapp=error', request.url));
+  }
+}
+
+// New POST flow for client-side event and token code exchange path.
+export async function POST(request: NextRequest) {
+  try {
+    await ensureCoreSchema();
+    const userId = await requireUserId();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const body = await request.json();
+    const workspaceId = body.workspaceId;
+    const eventPayload = body.eventData || {};
+    let finalAccessToken = body.access_token || '';
+    const code = body.code;
+    const phoneNumberId = body.phone_number_id || eventPayload.phone_number_id || '';
+    const businessAccountId = body.business_id || eventPayload.business_id || '';
+
+    if (!workspaceId) {
+      return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
+    }
+
+    const isOwner = await verifyWorkspaceOwner(workspaceId, userId);
+    if (!isOwner) return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+
+    // Exchange code for access token if provided
+    if (!finalAccessToken && code) {
+      console.log('[v0] Exchanging token code from POST payload');
+      let appId = process.env.META_APP_ID || '';
+      let appSecret = process.env.META_APP_SECRET || '';
+
+      const metaConfig = await sql`
+        SELECT app_id, app_secret
+        FROM meta_apps
+        WHERE workspace_id = ${workspaceId}
+        ORDER BY is_default DESC
+        LIMIT 1
+      `;
+      if (metaConfig && metaConfig.length > 0) {
+        appId = metaConfig[0].app_id || appId;
+        appSecret = metaConfig[0].app_secret || appSecret;
+      }
+
+      if (appId && appSecret) {
+        try {
+          const tokenResponse = await fetch('https://graph.instagram.com/v20.0/oauth/access_token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              client_id: appId,
+              client_secret: appSecret,
+              grant_type: 'authorization_code',
+              code,
+            }).toString(),
+          });
+
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json();
+            finalAccessToken = tokenData.access_token;
+            console.log('[v0] POST code exchange success');
+          }
+        } catch (err) {
+          console.error('[v0] Failed to exchange code for token in POST:', err);
+        }
+      }
+    }
+
+    // If the embedded event gives IDs, use those; else we still try to query Meta if token exists.
+    const accountDetails: any = {
+      phone_number: eventPayload.display_phone_number || '',
+      account_name: eventPayload.account_name || '',
+      business_account_id: businessAccountId,
+      profile_picture_url: eventPayload.profile_picture_url || '',
+      account_id: eventPayload.waba_id || '',
+    };
+
+    if (finalAccessToken) {
+      try {
+        if (phoneNumberId) {
+          const phoneResponse = await fetch(
+            `https://graph.instagram.com/v20.0/${phoneNumberId}?fields=display_phone_number,owner_business_account_id&access_token=${finalAccessToken}`
+          );
+          if (phoneResponse.ok) {
+            const phoneData = await phoneResponse.json();
+            accountDetails.phone_number = phoneData.display_phone_number || accountDetails.phone_number;
+            accountDetails.business_account_id = phoneData.owner_business_account_id || accountDetails.business_account_id;
+          }
+        }
+
+        const meResponse = await fetch(
+          `https://graph.instagram.com/v20.0/me?fields=id,name,email&access_token=${finalAccessToken}`
+        );
+        if (meResponse.ok) {
+          const meData = await meResponse.json();
+          accountDetails.account_id = meData.id || accountDetails.account_id;
+          accountDetails.account_name = meData.name || accountDetails.account_name || 'WhatsApp Business Account';
+        }
+      } catch (err) {
+        console.error('[v0] Failed to fetch account details from Meta in POST:', err);
+      }
+    }
+
+    const credentials = {
+      access_token: finalAccessToken || '',
+      phone_number_id: phoneNumberId || '',
+      business_account_id: businessAccountId || '',
+    };
+    const metadata = {
+      ...accountDetails,
+      connected_at: new Date().toISOString(),
+      phone_number_id: phoneNumberId || accountDetails.phone_number_id || '',
+      waba_id: eventPayload.waba_id || accountDetails.account_id || '',
+      business_id: eventPayload.business_id || '',
+    };
+
+    const existing = await sql`
+      SELECT id FROM integrations
+      WHERE workspace_id = ${workspaceId} AND type = 'facebook_whatsapp'
+      LIMIT 1
+    `;
+
+    if (existing && existing.length > 0) {
+      await sql`
+        UPDATE integrations
+        SET credentials = ${JSON.stringify(credentials)},
+            metadata = ${JSON.stringify(metadata)},
+            is_active = true,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${existing[0].id}
+      `;
+    } else {
+      await sql`
+        INSERT INTO integrations (workspace_id, type, credentials, metadata, is_active)
+        VALUES (${workspaceId}, 'facebook_whatsapp', ${JSON.stringify(credentials)}, ${JSON.stringify(metadata)}, true)
+      `;
+    }
+
+    return NextResponse.json({
+      success: true, connection: {
+        id: existing?.[0]?.id || null,
+        phone_number: metadata.phone_number || '',
+        account_name: metadata.account_name || '',
+        business_account_id: credentials.business_account_id || '',
+        access_token: credentials.access_token || '',
+        connected_at: metadata.connected_at,
+        profile_picture_url: metadata.profile_picture_url || '',
+        is_active: true,
+      }
+    });
+  } catch (error: any) {
+    console.error('[v0] Embed callback POST error:', error);
+    return NextResponse.json({ success: false, error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }
