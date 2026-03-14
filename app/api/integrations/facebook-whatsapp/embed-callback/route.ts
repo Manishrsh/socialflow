@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifySession } from '@/lib/auth';
 import { ensureCoreSchema, sql } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
@@ -9,15 +7,38 @@ export async function GET(request: NextRequest) {
 
     const url = new URL(request.url);
 
-    const code = url.searchParams.get("code");
-    const workspaceId = url.searchParams.get("state");
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
 
-    console.log("[v0] OAuth callback received");
-    console.log("[v0] Code:", code);
-    console.log("[v0] WorkspaceId:", workspaceId);
+    console.log('WhatsApp OAuth callback hit');
+    console.log('Code:', code);
+    console.log('State:', state);
 
-    if (!code || !workspaceId) {
-      return NextResponse.redirect(new URL("/dashboard?whatsapp=error", request.url));
+    if (!code) {
+      return NextResponse.json(
+        { error: 'Missing OAuth parameter: code is required' },
+        { status: 400 }
+      );
+    }
+
+    // Prefer workspace provided in state, else allow fallback from env or header.
+    const defaultWorkspaceId = process.env.DEFAULT_WORKSPACE_ID || url.searchParams.get('workspaceId') || request.headers.get('x-workspace-id');
+    const workspaceId = state?.trim() || defaultWorkspaceId?.trim();
+
+    if (!workspaceId) {
+      return NextResponse.json(
+        { error: 'Missing workspace identifier. Please provide state=workspaceId or set DEFAULT_WORKSPACE_ID.' },
+        { status: 400 }
+      );
+    }
+
+    // Validate UUID format for workspace ID to avoid DB parse errors.
+    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    if (!uuidRegex.test(workspaceId)) {
+      return NextResponse.json(
+        { error: 'Invalid workspaceId format; expect UUID string.' },
+        { status: 400 }
+      );
     }
 
     // Load Meta app config
