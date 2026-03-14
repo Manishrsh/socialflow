@@ -2,124 +2,154 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/auth';
 import { ensureCoreSchema, sql } from '@/lib/db';
-import { randomUUID } from 'crypto';
 
-function parseSettings(value: any): Record<string, any> {
-  if (!value) return {};
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return {};
-    }
-  }
-  return value;
-}
-
-async function authUserId() {
+async function requireUserId(): Promise<string | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get('auth-token')?.value;
+
+  console.log('[v0] Auth token from cookies:', token);
+
   if (!token) return null;
-  return verifySession(token);
+
+  const userId = await verifySession(token);
+  console.log('[v0] Verified userId:', userId);
+
+  return userId;
+}
+
+async function verifyWorkspaceOwner(workspaceId: string, userId: string): Promise<boolean> {
+  console.log('[v0] Checking workspace ownership:', { workspaceId, userId });
+
+  const owned = await sql`
+    SELECT id
+    FROM workspaces
+    WHERE id = ${workspaceId} AND owner_id = ${userId}
+    LIMIT 1
+  `;
+
+  console.log('[v0] Workspace query result:', owned);
+
+  return Array.isArray(owned) && owned.length > 0;
+}
+
+function isSet(value?: string): boolean {
+  return !!String(value || '').trim();
+}
+
+async function loadWorkspaceMetaConfig(workspaceId: string) {
+  try {
+    console.log('[v0] Loading Meta config for workspace:', workspaceId);
+
+    const rows = await sql`
+      SELECT app_id, config_id
+      FROM meta_apps
+      WHERE workspace_id = ${workspaceId}
+      ORDER BY is_default DESC, created_at ASC
+      LIMIT 1
+    `;
+
+    console.log('[v0] Meta config query result:', rows);
+
+    return rows?.[0] || null;
+
+  } catch (error) {
+    console.error('[v0] Failed to load meta config:', error);
+    return null;
+  }
 }
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('[v0] ===== WhatsApp Signup URL Request Started =====');
+
     await ensureCoreSchema();
-    const userId = await authUserId();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    console.log('[v0] Core schema ensured');
 
-    const workspaceId = new URL(request.url).searchParams.get('workspaceId') || '';
-    if (!workspaceId) return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
+    const userId = await requireUserId();
 
-    const rows = await sql`
-      SELECT id, name, settings
-      FROM workspaces
-      WHERE id = ${workspaceId} AND owner_id = ${userId}
-      LIMIT 1
-    `;
-    if (!rows || rows.length === 0) {
+    if (!userId) {
+      console.log('[v0] Unauthorized request (no userId)');
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const url = new URL(request.url);
+    console.log('[v0] Request URL:', request.url);
+
+    const workspaceId = url.searchParams.get('workspaceId');
+    console.log('[v0] workspaceId from query:', workspaceId);
+
+    if (!workspaceId) {
+      console.log('[v0] Missing workspaceId');
+      return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
+    }
+
+    const isOwner = await verifyWorkspaceOwner(workspaceId, userId);
+
+    if (!isOwner) {
+      console.log('[v0] Workspace ownership verification failed');
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
     }
 
-    const workspace = rows[0];
-    const settings = parseSettings(workspace.settings);
-    const apiKey = String(settings?.apiKey || '');
+    console.log('[v0] Workspace ownership verified');
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        workspaceName: workspace.name || '',
-        whatsappPhoneNumber: String(settings?.whatsappPhoneNumber || ''),
-        webhookUrl: String(settings?.webhookUrl || ''),
-        apiKeyMasked: apiKey ? `${'*'.repeat(Math.max(8, apiKey.length - 4))}${apiKey.slice(-4)}` : '',
-        hasApiKey: !!apiKey,
-      },
-    });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error?.message || 'Failed to load settings' }, { status: 500 });
-  }
-}
+    // Load Meta config
+    let appId = process.env.META_APP_ID || '';
+    let configId = process.env.META_CONFIG_ID || '';
 
-export async function POST(request: NextRequest) {
-  try {
-    await ensureCoreSchema();
-    const userId = await authUserId();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    console.log('[v0] Env Meta config:', { appId, configId });
 
-    const body = await request.json();
-    const workspaceId = String(body?.workspaceId || '').trim();
-    const workspaceName = String(body?.workspaceName || '').trim();
-    const whatsappPhoneNumber = String(body?.whatsappPhoneNumber || '').trim();
-    const webhookUrl = String(body?.webhookUrl || '').trim();
-    const regenerateApiKey = !!body?.regenerateApiKey;
+    const metaConfig = await loadWorkspaceMetaConfig(workspaceId);
 
-    if (!workspaceId || !workspaceName) {
-      return NextResponse.json({ error: 'workspaceId and workspaceName are required' }, { status: 400 });
+    if (metaConfig) {
+      console.log('[v0] Using workspace-specific Meta config:', metaConfig);
+
+      appId = metaConfig.app_id || appId;
+      configId = metaConfig.config_id || configId;
     }
 
-    const rows = await sql`
-      SELECT id, settings
-      FROM workspaces
-      WHERE id = ${workspaceId} AND owner_id = ${userId}
-      LIMIT 1
-    `;
-    if (!rows || rows.length === 0) {
-      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+    console.log('[v0] Final Meta config:', { appId, configId });
+
+    if (!isSet(appId) || !isSet(configId)) {
+      console.log('[v0] Meta configuration missing');
+
+      return NextResponse.json({
+        error: 'Meta app configuration not found',
+        url: null,
+      }, { status: 400 });
     }
 
-    const current = rows[0];
-    const settings = parseSettings(current.settings);
-    const nextApiKey = regenerateApiKey
-      ? `wk_${randomUUID().replace(/-/g, '')}`
-      : String(settings?.apiKey || '');
+    const callbackUrl =
+      'https://socialflow-gxnk.vercel.app/api/integrations/facebook-whatsapp/embed-callback';
 
-    const nextSettings = {
-      ...settings,
-      whatsappPhoneNumber,
-      webhookUrl,
-      apiKey: nextApiKey,
-    };
+    console.log('[v0] Callback URL:', callbackUrl);
 
-    await sql`
-      UPDATE workspaces
-      SET
-        name = ${workspaceName},
-        settings = ${JSON.stringify(nextSettings)},
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${workspaceId}
-    `;
+    const state = encodeURIComponent(workspaceId);
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        workspaceName,
-        whatsappPhoneNumber,
-        webhookUrl,
-        apiKey: nextApiKey || null,
-      },
-    });
+    console.log('[v0] OAuth state value:', state);
+
+    const signupUrl =
+      `https://business.facebook.com/messaging/whatsapp/onboard/` +
+      `?app_id=${appId}` +
+      `&config_id=${configId}` +
+      `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+      `&state=${state}` +
+      `&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D`;
+
+    console.log('[v0] Generated signup URL:', signupUrl);
+
+    console.log('[v0] ===== Signup URL Generated Successfully =====');
+
+    return NextResponse.json({ url: signupUrl });
+
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error?.message || 'Failed to save settings' }, { status: 500 });
+    console.error('[v0] Signup URL error:', error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: error?.message || 'Internal server error',
+      },
+      { status: 500 }
+    );
   }
 }

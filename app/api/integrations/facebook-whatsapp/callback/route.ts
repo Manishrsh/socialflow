@@ -1,159 +1,147 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifySession } from '@/lib/auth';
 import { ensureCoreSchema, sql } from '@/lib/db';
 
-async function requireUserId(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('auth-token')?.value;
-  if (!token) return null;
-  return verifySession(token);
-}
-
-async function verifyWorkspaceOwner(workspaceId: string, userId: string): Promise<boolean> {
-  const owned = await sql`
-    SELECT id
-    FROM workspaces
-    WHERE id = ${workspaceId} AND owner_id = ${userId}
-    LIMIT 1
-  `;
-  return Array.isArray(owned) && owned.length > 0;
-}
-
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
+    console.log('[v0] ===== WhatsApp OAuth Callback =====');
+
     await ensureCoreSchema();
-    const userId = await requireUserId();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = await request.json();
-    const workspaceId = String(body?.workspaceId || '').trim();
-    const authorizationCode = String(body?.authorizationCode || '').trim();
-    const accountData = body?.accountData || {};
+    const url = new URL(request.url);
 
-    if (!workspaceId || !authorizationCode) {
+    const code = url.searchParams.get('code');
+    const workspaceId = url.searchParams.get('state');
+
+    console.log('[v0] OAuth params:', { code, workspaceId });
+
+    if (!code || !workspaceId) {
       return NextResponse.json(
-        { error: 'workspaceId and authorizationCode are required' },
+        { error: 'Missing OAuth parameters' },
         { status: 400 }
       );
     }
 
-    const isOwner = await verifyWorkspaceOwner(workspaceId, userId);
-    if (!isOwner) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    // Get Meta app secret for token exchange
-    let appSecret = process.env.META_APP_SECRET || '';
-    let appId = process.env.META_APP_ID || '';
-    let redirectUri = process.env.META_REDIRECT_URI || '';
-
-    // Try to get workspace-specific config
+    // Load Meta app configuration
     const metaApps = await sql`
-      SELECT app_id, app_secret, redirect_uri
+      SELECT app_id, app_secret
       FROM meta_apps
       WHERE workspace_id = ${workspaceId}
       ORDER BY is_default DESC, created_at ASC
       LIMIT 1
     `;
 
+    let appId = process.env.META_APP_ID || '';
+    let appSecret = process.env.META_APP_SECRET || '';
+
     if (metaApps && metaApps.length > 0) {
       appId = metaApps[0].app_id || appId;
       appSecret = metaApps[0].app_secret || appSecret;
-      redirectUri = metaApps[0].redirect_uri || redirectUri;
     }
 
-    if (!appSecret || !appId) {
-      return NextResponse.json(
-        { error: 'Meta app configuration not properly set up' },
-        { status: 400 }
-      );
-    }
+    const redirectUri =
+      'https://socialflow-gxnk.vercel.app/api/integrations/facebook-whatsapp/embed-callback';
 
-    // Exchange authorization code for long-lived access token
-    const tokenResponse = await fetch('https://graph.instagram.com/v20.0/oauth/access_token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: appId,
-        client_secret: appSecret,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri || 'https://localhost:3000',
-        code: authorizationCode,
-      }).toString(),
-    });
+    console.log('[v0] Using Meta config:', { appId, redirectUri });
 
-    if (!tokenResponse.ok) {
-      const error = await tokenResponse.json();
-      console.error('[v0] Token exchange failed:', error);
-      return NextResponse.json(
-        { error: `Token exchange failed: ${error.error?.message || 'Unknown error'}` },
-        { status: 400 }
-      );
-    }
+    // Exchange authorization code for access token
+    const tokenResponse = await fetch(
+      `https://graph.facebook.com/v20.0/oauth/access_token`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: appId,
+          client_secret: appSecret,
+          redirect_uri: redirectUri,
+          code: code,
+        }).toString(),
+      }
+    );
 
     const tokenData = await tokenResponse.json();
-    const accessToken = tokenData.access_token;
 
-    if (!accessToken) {
+    console.log('[v0] Token response:', tokenData);
+
+    if (!tokenResponse.ok || !tokenData.access_token) {
       return NextResponse.json(
-        { error: 'No access token in response' },
+        { error: 'Failed to exchange token', details: tokenData },
         { status: 400 }
       );
     }
 
-    // Get WhatsApp Business Account details
-    let accountDetails: any = {
-      phone_number: accountData.phone_number || '',
-      account_name: accountData.account_name || 'WhatsApp Business Account',
-      business_account_id: accountData.business_account_id || '',
-      profile_picture_url: accountData.profile_picture_url || '',
-    };
+    const accessToken = tokenData.access_token;
 
-    try {
-      // Fetch account info from Meta API
-      const meResponse = await fetch(
-        `https://graph.instagram.com/v20.0/me?fields=id,name,phone,picture.type(large)&access_token=${accessToken}`
+    // Get businesses
+    const businessesRes = await fetch(
+      `https://graph.facebook.com/v20.0/me/businesses?access_token=${accessToken}`
+    );
+
+    const businessesData = await businessesRes.json();
+
+    console.log('[v0] Businesses:', businessesData);
+
+    if (!businessesData.data || businessesData.data.length === 0) {
+      return NextResponse.json(
+        { error: 'No businesses found' },
+        { status: 400 }
       );
-
-      if (meResponse.ok) {
-        const meData = await meResponse.json();
-        accountDetails = {
-          ...accountDetails,
-          account_id: meData.id,
-          account_name: meData.name || accountDetails.account_name,
-          phone_number: meData.phone || accountDetails.phone_number,
-          profile_picture_url: meData.picture?.data?.url || accountDetails.profile_picture_url,
-        };
-      }
-    } catch (err) {
-      console.error('[v0] Failed to fetch account details:', err);
-      // Continue with basic details
     }
 
-    // Check if connection already exists
-    const existing = await sql`
-      SELECT id FROM integrations
-      WHERE workspace_id = ${workspaceId} AND type = 'facebook_whatsapp'
-      LIMIT 1
-    `;
+    const businessId = businessesData.data[0].id;
+
+    // Get WhatsApp Business Accounts
+    const wabaRes = await fetch(
+      `https://graph.facebook.com/v20.0/${businessId}/owned_whatsapp_business_accounts?access_token=${accessToken}`
+    );
+
+    const wabaData = await wabaRes.json();
+
+    console.log('[v0] WABA accounts:', wabaData);
+
+    if (!wabaData.data || wabaData.data.length === 0) {
+      return NextResponse.json(
+        { error: 'No WhatsApp Business accounts found' },
+        { status: 400 }
+      );
+    }
+
+    const wabaId = wabaData.data[0].id;
+
+    // Get phone numbers
+    const phoneRes = await fetch(
+      `https://graph.facebook.com/v20.0/${wabaId}/phone_numbers?access_token=${accessToken}`
+    );
+
+    const phoneData = await phoneRes.json();
+
+    console.log('[v0] Phone numbers:', phoneData);
+
+    const phone = phoneData?.data?.[0] || {};
 
     const credentials = {
       access_token: accessToken,
-      phone_number: accountDetails.phone_number,
-      account_name: accountDetails.account_name,
-      business_account_id: accountDetails.business_account_id,
+      waba_id: wabaId,
+      phone_number_id: phone.id,
+      phone_number: phone.display_phone_number,
     };
 
     const metadata = {
-      phone_number: accountDetails.phone_number,
-      account_name: accountDetails.account_name,
-      business_account_id: accountDetails.business_account_id,
-      profile_picture_url: accountDetails.profile_picture_url,
+      waba_id: wabaId,
+      phone_number: phone.display_phone_number,
+      phone_number_id: phone.id,
       connected_at: new Date().toISOString(),
-      account_id: accountDetails.account_id,
     };
 
+    // Check if integration exists
+    const existing = await sql`
+      SELECT id
+      FROM integrations
+      WHERE workspace_id = ${workspaceId}
+      AND type = 'facebook_whatsapp'
+      LIMIT 1
+    `;
+
     if (existing && existing.length > 0) {
-      // Update existing integration
       await sql`
         UPDATE integrations
         SET credentials = ${JSON.stringify(credentials)},
@@ -163,35 +151,32 @@ export async function POST(request: NextRequest) {
         WHERE id = ${existing[0].id}
       `;
 
-      return NextResponse.json({
-        success: true,
-        message: 'WhatsApp account updated',
-        connection: {
-          id: existing[0].id,
-          ...accountDetails,
-          is_active: true,
-        },
-      });
-    } else {
-      // Create new integration
-      const result = await sql`
-        INSERT INTO integrations (workspace_id, type, credentials, metadata, is_active)
-        VALUES (${workspaceId}, 'facebook_whatsapp', ${JSON.stringify(credentials)}, ${JSON.stringify(metadata)}, true)
-        RETURNING id, created_at
-      `;
+      console.log('[v0] Updated existing integration');
 
-      return NextResponse.json({
-        success: true,
-        message: 'WhatsApp account connected successfully',
-        connection: {
-          id: result[0].id,
-          ...accountDetails,
-          is_active: true,
-        },
-      });
+      return NextResponse.redirect(
+        `https://socialflow-gxnk.vercel.app/dashboard?connected=true`
+      );
     }
+
+    const result = await sql`
+      INSERT INTO integrations (workspace_id, type, credentials, metadata, is_active)
+      VALUES (${workspaceId}, 'facebook_whatsapp', ${JSON.stringify(
+      credentials
+    )}, ${JSON.stringify(metadata)}, true)
+      RETURNING id
+    `;
+
+    console.log('[v0] Created new integration:', result);
+
+    return NextResponse.redirect(
+      `https://socialflow-gxnk.vercel.app/dashboard?connected=true`
+    );
   } catch (error: any) {
-    console.error('[v0] Callback error:', error);
-    return NextResponse.json({ success: false, error: error?.message || 'Internal server error' }, { status: 500 });
+    console.error('[v0] OAuth callback error:', error);
+
+    return NextResponse.json(
+      { success: false, error: error?.message || 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
