@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { DEVICE_HOME_SCREEN_KEY } from '@/lib/device-preferences';
 import { ArrowRight, Zap, Users, MessageSquare, BarChart3, Send } from 'lucide-react';
 import Link from 'next/link';
+import { WhatsAppConnectCard } from '@/components/whatsapp-connect-card';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -79,6 +80,9 @@ export default function DashboardPage() {
         <h1 className="text-3xl font-bold text-balance">{workspace?.name || 'Welcome to WareChat'}</h1>
         <p className="text-foreground/60 mt-2">Manage your WhatsApps automation platforms</p>
       </div>
+
+      {/* WhatsApp Connection Card */}
+      <WhatsAppConnectCard />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
