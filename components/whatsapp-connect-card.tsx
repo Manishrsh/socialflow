@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,26 +23,44 @@ interface WhatsAppConnection {
 export function WhatsAppConnectCard() {
   const { workspace, user } = useAuth();
   const [connection, setConnection] = useState<WhatsAppConnection | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const popupRef = useRef<Window | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load existing connection on mount
   useEffect(() => {
-    if (!workspace?.id) return;
+    if (!workspace?.id) {
+      setIsLoading(false);
+      return;
+    }
     loadConnection();
   }, [workspace?.id]);
+
+  // Cleanup polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
 
   const loadConnection = async () => {
     try {
       setIsLoading(true);
       setError(null);
+      console.log('[v0] Loading WhatsApp connection for workspace:', workspace?.id);
       const res = await fetch(`/api/integrations/facebook-whatsapp?workspaceId=${workspace?.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.connection) {
-          setConnection(data.connection);
-        }
+      const data = await res.json();
+      console.log('[v0] Connection data received:', data);
+      if (data.connection) {
+        setConnection(data.connection);
+        console.log('[v0] Connection found:', data.connection);
+      } else {
+        setConnection(null);
+        console.log('[v0] No connection found');
       }
     } catch (err) {
       console.error('[v0] Failed to load WhatsApp connection:', err);
@@ -65,20 +83,56 @@ export function WhatsAppConnectCard() {
       .then(res => res.json())
       .then(data => {
         if (data.url) {
+          console.log('[v0] Opening WhatsApp signup popup with URL');
           // Open embedded signup in popup
-          const popup = window.open(
+          popupRef.current = window.open(
             data.url,
             'whatsapp-signup',
             'width=600,height=700,top=100,left=100'
           );
 
-          // Listen for completion
+          // Start polling for connection after popup opens
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+
+          // Poll to check if connection was established
+          pollingIntervalRef.current = setInterval(async () => {
+            try {
+              const res = await fetch(`/api/integrations/facebook-whatsapp?workspaceId=${workspace.id}`);
+              const data = await res.json();
+              
+              if (data.connection) {
+                console.log('[v0] Connection detected after popup! Reloading...');
+                setConnection(data.connection);
+                setIsConnecting(false);
+                if (pollingIntervalRef.current) {
+                  clearInterval(pollingIntervalRef.current);
+                }
+                toast.success('WhatsApp account connected successfully!');
+                
+                // Close popup if still open
+                if (popupRef.current && !popupRef.current.closed) {
+                  popupRef.current.close();
+                }
+              }
+            } catch (err) {
+              console.error('[v0] Polling error:', err);
+            }
+          }, 1500);
+
+          // Also listen for popup close
           const checkPopupClosed = setInterval(() => {
-            if (popup?.closed) {
+            if (popupRef.current?.closed) {
               clearInterval(checkPopupClosed);
-              setIsConnecting(false);
-              // Reload connection after popup closes
-              setTimeout(() => loadConnection(), 1000);
+              // Give it a final check
+              setTimeout(() => {
+                loadConnection();
+                setIsConnecting(false);
+                if (pollingIntervalRef.current) {
+                  clearInterval(pollingIntervalRef.current);
+                }
+              }, 500);
             }
           }, 1000);
         } else {

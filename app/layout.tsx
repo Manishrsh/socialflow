@@ -52,7 +52,6 @@ export default function RootLayout({
         />
       </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
-        <div id="fb-root" />
         <PwaProvider>
           <AuthProvider>
             {children}
