@@ -55,7 +55,11 @@ export function WhatsAppConnectCard() {
       const res = await fetch(`/api/integrations/facebook-whatsapp?workspaceId=${workspace?.id}`);
       const data = await res.json();
       console.log('[v0] Connection data received:', data);
+      console.log('[v0] Connection object:', data.connection);
       if (data.connection) {
+        console.log('[v0] Phone number:', data.connection.phone_number);
+        console.log('[v0] Business account ID:', data.connection.business_account_id);
+        console.log('[v0] Account name:', data.connection.account_name);
         setConnection(data.connection);
         console.log('[v0] Connection found:', data.connection);
       } else {
@@ -274,18 +278,22 @@ export function WhatsAppConnectCard() {
 
               <div>
                 <p className="text-xs text-foreground/60 uppercase tracking-wider">Account Name</p>
-                <p className="font-semibold text-foreground">{connection.account_name}</p>
+                <p className="font-semibold text-foreground">{connection.account_name || 'WhatsApp Business Account'}</p>
               </div>
 
-              <div>
-                <p className="text-xs text-foreground/60 uppercase tracking-wider">Phone Number</p>
-                <p className="font-semibold text-foreground">{connection.phone_number}</p>
-              </div>
+              {connection.phone_number && (
+                <div>
+                  <p className="text-xs text-foreground/60 uppercase tracking-wider">Phone Number</p>
+                  <p className="font-semibold text-foreground">{connection.phone_number}</p>
+                </div>
+              )}
 
-              <div>
-                <p className="text-xs text-foreground/60 uppercase tracking-wider">Business Account ID</p>
-                <p className="font-mono text-sm text-foreground/70 break-all">{connection.business_account_id}</p>
-              </div>
+              {connection.business_account_id && (
+                <div>
+                  <p className="text-xs text-foreground/60 uppercase tracking-wider">Business Account ID</p>
+                  <p className="font-mono text-sm text-foreground/70 break-all">{connection.business_account_id}</p>
+                </div>
+              )}
             </div>
           </div>
 

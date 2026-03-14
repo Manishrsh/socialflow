@@ -24,6 +24,15 @@ export async function GET(request: NextRequest) {
   try {
     await ensureCoreSchema();
     const url = new URL(request.url);
+    
+    // Log ALL query parameters to see what Meta is sending
+    const allParams: any = {};
+    for (const [key, value] of url.searchParams.entries()) {
+      allParams[key] = value;
+      console.log(`[v0] Query param: ${key} = ${value}`);
+    }
+    console.log('[v0] All callback parameters:', allParams);
+    
     const workspaceId = url.searchParams.get('workspaceId');
     const accessToken = url.searchParams.get('access_token');
     const phoneNumberId = url.searchParams.get('phone_number_id');
@@ -34,6 +43,7 @@ export async function GET(request: NextRequest) {
     console.log('[v0] Access token present:', !!accessToken);
     console.log('[v0] Phone number ID:', phoneNumberId);
     console.log('[v0] Business account ID:', businessAccountId);
+    console.log('[v0] Authorization code:', code);
 
     // Verify user is logged in
     const userId = await requireUserId();
@@ -97,34 +107,54 @@ export async function GET(request: NextRequest) {
 
     // Get account details from Meta API if we have access token
     let accountDetails = {
-      phone_number: '',
+      phone_number: phoneNumberId || '',
       account_name: 'WhatsApp Business Account',
       business_account_id: businessAccountId || '',
       profile_picture_url: '',
       account_id: '',
     };
 
+    console.log('[v0] Initial account details before API call:', accountDetails);
+
     if (finalAccessToken) {
       try {
+        // Try to get account info from WhatsApp endpoint
+        if (phoneNumberId) {
+          const phoneResponse = await fetch(
+            `https://graph.instagram.com/v20.0/${phoneNumberId}?fields=display_phone_number,owner_business_account_id&access_token=${finalAccessToken}`
+          );
+
+          if (phoneResponse.ok) {
+            const phoneData = await phoneResponse.json();
+            console.log('[v0] Phone number data:', phoneData);
+            accountDetails = {
+              ...accountDetails,
+              phone_number: phoneData.display_phone_number || accountDetails.phone_number,
+              business_account_id: phoneData.owner_business_account_id || accountDetails.business_account_id,
+            };
+          }
+        }
+
+        // Also try to get user/business info
         const meResponse = await fetch(
-          `https://graph.instagram.com/v20.0/me?fields=id,name,phone,picture.type(large)&access_token=${finalAccessToken}`
+          `https://graph.instagram.com/v20.0/me?fields=id,name,email&access_token=${finalAccessToken}`
         );
 
         if (meResponse.ok) {
           const meData = await meResponse.json();
+          console.log('[v0] Me data from API:', meData);
           accountDetails = {
             ...accountDetails,
             account_id: meData.id || accountDetails.account_id,
             account_name: meData.name || accountDetails.account_name,
-            phone_number: meData.phone || accountDetails.phone_number || phoneNumberId || '',
-            profile_picture_url: meData.picture?.data?.url || accountDetails.profile_picture_url,
           };
-          console.log('[v0] Fetched account details from Meta API');
         }
       } catch (err) {
         console.error('[v0] Failed to fetch account details:', err);
       }
     }
+
+    console.log('[v0] Final account details:', accountDetails);
 
     // Save to database
     const credentials = {
