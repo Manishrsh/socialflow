@@ -3,325 +3,127 @@ import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/auth';
 import { ensureCoreSchema, sql } from '@/lib/db';
 
-async function requireUserId(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('auth-token')?.value;
-  if (!token) return null;
-  return verifySession(token);
-}
-
-async function verifyWorkspaceOwner(workspaceId: string, userId: string): Promise<boolean> {
-  const owned = await sql`
-    SELECT id
-    FROM workspaces
-    WHERE id = ${workspaceId} AND owner_id = ${userId}
-    LIMIT 1
-  `;
-  return Array.isArray(owned) && owned.length > 0;
-}
-
 export async function GET(request: NextRequest) {
   try {
     await ensureCoreSchema();
+
     const url = new URL(request.url);
 
-    // Log ALL query parameters to see what Meta is sending
-    const allParams: any = {};
-    for (const [key, value] of url.searchParams.entries()) {
-      allParams[key] = value;
-      console.log(`[v0] Query param: ${key} = ${value}`);
-    }
-    console.log('[v0] All callback parameters:', allParams);
+    const code = url.searchParams.get("code");
+    const workspaceId = url.searchParams.get("state");
 
-    const workspaceId = url.searchParams.get('workspaceId');
-    const accessToken = url.searchParams.get('access_token');
-    const phoneNumberId = url.searchParams.get('phone_number_id');
-    const businessAccountId = url.searchParams.get('business_account_id');
-    const code = url.searchParams.get('code');
+    console.log("[v0] OAuth callback received");
+    console.log("[v0] Code:", code);
+    console.log("[v0] WorkspaceId:", workspaceId);
 
-    console.log('[v0] Embed callback received for workspace:', workspaceId);
-    console.log('[v0] Access token present:', !!accessToken);
-    console.log('[v0] Phone number ID:', phoneNumberId);
-    console.log('[v0] Business account ID:', businessAccountId);
-    console.log('[v0] Authorization code:', code);
-
-    // Verify user is logged in
-    const userId = await requireUserId();
-    if (!userId) {
-      return NextResponse.redirect(new URL('/login', request.url));
+    if (!code || !workspaceId) {
+      return NextResponse.redirect(new URL("/dashboard?whatsapp=error", request.url));
     }
 
-    if (!workspaceId) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
+    // Load Meta app config
+    let appId = process.env.META_APP_ID || "";
+    let appSecret = process.env.META_APP_SECRET || "";
 
-    const isOwner = await verifyWorkspaceOwner(workspaceId, userId);
-    if (!isOwner) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-
-    // If we have authorization code, exchange it for token
-    let finalAccessToken = accessToken;
-    if (code && !accessToken) {
-      console.log('[v0] Exchanging authorization code for access token');
-      // Get Meta app configuration
-      let appId = process.env.META_APP_ID || '';
-      let appSecret = process.env.META_APP_SECRET || '';
-
-      const metaConfig = await sql`
-        SELECT app_id, app_secret
-        FROM meta_apps
-        WHERE workspace_id = ${workspaceId}
-        ORDER BY is_default DESC
-        LIMIT 1
-      `;
-
-      if (metaConfig && metaConfig.length > 0) {
-        appId = metaConfig[0].app_id || appId;
-        appSecret = metaConfig[0].app_secret || appSecret;
-      }
-
-      if (appSecret && appId) {
-        try {
-          const tokenResponse = await fetch('https://graph.instagram.com/v20.0/oauth/access_token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              client_id: appId,
-              client_secret: appSecret,
-              grant_type: 'authorization_code',
-              code: code,
-            }).toString(),
-          });
-
-          if (tokenResponse.ok) {
-            const tokenData = await tokenResponse.json();
-            finalAccessToken = tokenData.access_token;
-            console.log('[v0] Successfully exchanged authorization code for token');
-          }
-        } catch (err) {
-          console.error('[v0] Failed to exchange code for token:', err);
-        }
-      }
-    }
-
-    // Get account details from Meta API if we have access token
-    let accountDetails = {
-      phone_number: phoneNumberId || '',
-      account_name: 'WhatsApp Business Account',
-      business_account_id: businessAccountId || '',
-      profile_picture_url: '',
-      account_id: '',
-    };
-
-    console.log('[v0] Initial account details before API call:', accountDetails);
-
-    if (finalAccessToken) {
-      try {
-        // Try to get account info from WhatsApp endpoint
-        if (phoneNumberId) {
-          const phoneResponse = await fetch(
-            `https://graph.instagram.com/v20.0/${phoneNumberId}?fields=display_phone_number,owner_business_account_id&access_token=${finalAccessToken}`
-          );
-
-          if (phoneResponse.ok) {
-            const phoneData = await phoneResponse.json();
-            console.log('[v0] Phone number data:', phoneData);
-            accountDetails = {
-              ...accountDetails,
-              phone_number: phoneData.display_phone_number || accountDetails.phone_number,
-              business_account_id: phoneData.owner_business_account_id || accountDetails.business_account_id,
-            };
-          }
-        }
-
-        // Also try to get user/business info
-        const meResponse = await fetch(
-          `https://graph.instagram.com/v20.0/me?fields=id,name,email&access_token=${finalAccessToken}`
-        );
-
-        if (meResponse.ok) {
-          const meData = await meResponse.json();
-          console.log('[v0] Me data from API:', meData);
-          accountDetails = {
-            ...accountDetails,
-            account_id: meData.id || accountDetails.account_id,
-            account_name: meData.name || accountDetails.account_name,
-          };
-        }
-      } catch (err) {
-        console.error('[v0] Failed to fetch account details:', err);
-      }
-    }
-
-    console.log('[v0] Final account details:', accountDetails);
-
-    // Save to database
-    const credentials = {
-      access_token: finalAccessToken || '',
-      phone_number_id: phoneNumberId || '',
-      business_account_id: businessAccountId || '',
-    };
-
-    const metadata = {
-      ...accountDetails,
-      connected_at: new Date().toISOString(),
-    };
-
-    // Check if connection already exists
-    const existing = await sql`
-      SELECT id FROM integrations
-      WHERE workspace_id = ${workspaceId} AND type = 'facebook_whatsapp'
+    const metaConfig = await sql`
+      SELECT app_id, app_secret
+      FROM meta_apps
+      WHERE workspace_id = ${workspaceId}
+      ORDER BY is_default DESC
       LIMIT 1
     `;
 
-    if (existing && existing.length > 0) {
-      console.log('[v0] Updating existing WhatsApp connection');
-      await sql`
-        UPDATE integrations
-        SET credentials = ${JSON.stringify(credentials)},
-            metadata = ${JSON.stringify(metadata)},
-            is_active = true,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ${existing[0].id}
-      `;
-    } else {
-      console.log('[v0] Creating new WhatsApp connection');
-      await sql`
-        INSERT INTO integrations (workspace_id, type, credentials, metadata, is_active)
-        VALUES (${workspaceId}, 'facebook_whatsapp', ${JSON.stringify(credentials)}, ${JSON.stringify(metadata)}, true)
-      `;
+    if (metaConfig.length > 0) {
+      appId = metaConfig[0].app_id || appId;
+      appSecret = metaConfig[0].app_secret || appSecret;
     }
 
-    console.log('[v0] WhatsApp connection saved successfully');
+    const redirectUri =
+      "https://socialflow-gxnk.vercel.app/api/integrations/facebook-whatsapp/embed-callback";
 
-    // Redirect back to dashboard
-    return NextResponse.redirect(new URL(`/dashboard?whatsapp=connected`, request.url));
-  } catch (error: any) {
-    console.error('[v0] Embed callback error:', error);
-    return NextResponse.redirect(new URL('/dashboard?whatsapp=error', request.url));
-  }
-}
-
-// New POST flow for client-side event and token code exchange path.
-export async function POST(request: NextRequest) {
-  try {
-    await ensureCoreSchema();
-    const userId = await requireUserId();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const body = await request.json();
-    const workspaceId = body.workspaceId;
-    const eventPayload = body.eventData || {};
-    let finalAccessToken = body.access_token || '';
-    const code = body.code;
-    const phoneNumberId = body.phone_number_id || eventPayload.phone_number_id || '';
-    const businessAccountId = body.business_id || eventPayload.business_id || '';
-
-    if (!workspaceId) {
-      return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
-    }
-
-    const isOwner = await verifyWorkspaceOwner(workspaceId, userId);
-    if (!isOwner) return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
-
-    // Exchange code for access token if provided
-    if (!finalAccessToken && code) {
-      console.log('[v0] Exchanging token code from POST payload');
-      let appId = process.env.META_APP_ID || '';
-      let appSecret = process.env.META_APP_SECRET || '';
-
-      const metaConfig = await sql`
-        SELECT app_id, app_secret
-        FROM meta_apps
-        WHERE workspace_id = ${workspaceId}
-        ORDER BY is_default DESC
-        LIMIT 1
-      `;
-      if (metaConfig && metaConfig.length > 0) {
-        appId = metaConfig[0].app_id || appId;
-        appSecret = metaConfig[0].app_secret || appSecret;
+    // Exchange OAuth code for token
+    const tokenResponse = await fetch(
+      `https://graph.facebook.com/v20.0/oauth/access_token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: appId,
+          client_secret: appSecret,
+          redirect_uri: redirectUri,
+          code,
+        }).toString(),
       }
+    );
 
-      if (appId && appSecret) {
-        try {
-          const tokenResponse = await fetch('https://graph.instagram.com/v20.0/oauth/access_token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              client_id: appId,
-              client_secret: appSecret,
-              grant_type: 'authorization_code',
-              code,
-            }).toString(),
-          });
+    const tokenData = await tokenResponse.json();
 
-          if (tokenResponse.ok) {
-            const tokenData = await tokenResponse.json();
-            finalAccessToken = tokenData.access_token;
-            console.log('[v0] POST code exchange success');
-          }
-        } catch (err) {
-          console.error('[v0] Failed to exchange code for token in POST:', err);
-        }
-      }
+    console.log("[v0] Token exchange response:", tokenData);
+
+    if (!tokenData.access_token) {
+      return NextResponse.redirect(new URL("/dashboard?whatsapp=error", request.url));
     }
 
-    // If the embedded event gives IDs, use those; else we still try to query Meta if token exists.
-    const accountDetails: any = {
-      phone_number: eventPayload.display_phone_number || '',
-      account_name: eventPayload.account_name || '',
-      business_account_id: businessAccountId,
-      profile_picture_url: eventPayload.profile_picture_url || '',
-      account_id: eventPayload.waba_id || '',
-    };
+    const accessToken = tokenData.access_token;
 
-    if (finalAccessToken) {
-      try {
-        if (phoneNumberId) {
-          const phoneResponse = await fetch(
-            `https://graph.instagram.com/v20.0/${phoneNumberId}?fields=display_phone_number,owner_business_account_id&access_token=${finalAccessToken}`
-          );
-          if (phoneResponse.ok) {
-            const phoneData = await phoneResponse.json();
-            accountDetails.phone_number = phoneData.display_phone_number || accountDetails.phone_number;
-            accountDetails.business_account_id = phoneData.owner_business_account_id || accountDetails.business_account_id;
-          }
-        }
+    // Get businesses
+    const businessesRes = await fetch(
+      `https://graph.facebook.com/v20.0/me/businesses?access_token=${accessToken}`
+    );
 
-        const meResponse = await fetch(
-          `https://graph.instagram.com/v20.0/me?fields=id,name,email&access_token=${finalAccessToken}`
-        );
-        if (meResponse.ok) {
-          const meData = await meResponse.json();
-          accountDetails.account_id = meData.id || accountDetails.account_id;
-          accountDetails.account_name = meData.name || accountDetails.account_name || 'WhatsApp Business Account';
-        }
-      } catch (err) {
-        console.error('[v0] Failed to fetch account details from Meta in POST:', err);
-      }
+    const businessesData = await businessesRes.json();
+
+    if (!businessesData.data || businessesData.data.length === 0) {
+      console.log("[v0] No businesses found");
+      return NextResponse.redirect(new URL("/dashboard?whatsapp=error", request.url));
     }
+
+    const businessId = businessesData.data[0].id;
+
+    // Get WABA
+    const wabaRes = await fetch(
+      `https://graph.facebook.com/v20.0/${businessId}/owned_whatsapp_business_accounts?access_token=${accessToken}`
+    );
+
+    const wabaData = await wabaRes.json();
+
+    if (!wabaData.data || wabaData.data.length === 0) {
+      console.log("[v0] No WABA found");
+      return NextResponse.redirect(new URL("/dashboard?whatsapp=error", request.url));
+    }
+
+    const wabaId = wabaData.data[0].id;
+
+    // Get phone numbers
+    const phoneRes = await fetch(
+      `https://graph.facebook.com/v20.0/${wabaId}/phone_numbers?access_token=${accessToken}`
+    );
+
+    const phoneData = await phoneRes.json();
+
+    const phone = phoneData?.data?.[0];
 
     const credentials = {
-      access_token: finalAccessToken || '',
-      phone_number_id: phoneNumberId || '',
-      business_account_id: businessAccountId || '',
+      access_token: accessToken,
+      waba_id: wabaId,
+      phone_number_id: phone?.id || "",
+      phone_number: phone?.display_phone_number || "",
     };
+
     const metadata = {
-      ...accountDetails,
+      waba_id: wabaId,
+      phone_number_id: phone?.id || "",
+      phone_number: phone?.display_phone_number || "",
       connected_at: new Date().toISOString(),
-      phone_number_id: phoneNumberId || accountDetails.phone_number_id || '',
-      waba_id: eventPayload.waba_id || accountDetails.account_id || '',
-      business_id: eventPayload.business_id || '',
     };
 
     const existing = await sql`
       SELECT id FROM integrations
-      WHERE workspace_id = ${workspaceId} AND type = 'facebook_whatsapp'
+      WHERE workspace_id = ${workspaceId}
+      AND type = 'facebook_whatsapp'
       LIMIT 1
     `;
 
-    if (existing && existing.length > 0) {
+    if (existing.length > 0) {
       await sql`
         UPDATE integrations
         SET credentials = ${JSON.stringify(credentials)},
@@ -333,24 +135,22 @@ export async function POST(request: NextRequest) {
     } else {
       await sql`
         INSERT INTO integrations (workspace_id, type, credentials, metadata, is_active)
-        VALUES (${workspaceId}, 'facebook_whatsapp', ${JSON.stringify(credentials)}, ${JSON.stringify(metadata)}, true)
+        VALUES (${workspaceId}, 'facebook_whatsapp',
+        ${JSON.stringify(credentials)},
+        ${JSON.stringify(metadata)}, true)
       `;
     }
 
-    return NextResponse.json({
-      success: true, connection: {
-        id: existing?.[0]?.id || null,
-        phone_number: metadata.phone_number || '',
-        account_name: metadata.account_name || '',
-        business_account_id: credentials.business_account_id || '',
-        access_token: credentials.access_token || '',
-        connected_at: metadata.connected_at,
-        profile_picture_url: metadata.profile_picture_url || '',
-        is_active: true,
-      }
-    });
-  } catch (error: any) {
-    console.error('[v0] Embed callback POST error:', error);
-    return NextResponse.json({ success: false, error: error?.message || 'Internal server error' }, { status: 500 });
+    console.log("[v0] WhatsApp integration saved");
+
+    return NextResponse.redirect(
+      new URL("/dashboard?whatsapp=connected", request.url)
+    );
+  } catch (error) {
+    console.error("[v0] OAuth callback error:", error);
+
+    return NextResponse.redirect(
+      new URL("/dashboard?whatsapp=error", request.url)
+    );
   }
 }
