@@ -77,7 +77,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-balance">{workspace?.name || 'Welcome to WareChat'}</h1>
-        <p className="text-foreground/60 mt-2">Manage your WhatsApp automation platform</p>
+        <p className="text-foreground/60 mt-2">Manage your WhatsApp automation platforms</p>
       </div>
 
       {/* Stats Grid */}
