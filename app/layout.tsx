@@ -42,7 +42,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        {/* Meta SDK for WhatsApp embedded signup */}
+        <script
+          async
+          defer
+          crossOrigin="anonymous"
+          src="https://connect.facebook.net/en_US/sdk.js#xfbml=1&version=v20.0"
+        />
+      </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
+        <div id="fb-root" />
         <PwaProvider>
           <AuthProvider>
             {children}
