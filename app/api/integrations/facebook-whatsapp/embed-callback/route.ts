@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const tokenResponse = await fetch(
       `https://graph.facebook.com/v20.0/oauth/access_token`,
       {
-        method: "POST",
+        method: "GET",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           client_id: appId,
