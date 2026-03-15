@@ -62,17 +62,17 @@ export async function GET(request: NextRequest) {
       "https://socialflow-gxnk.vercel.app/api/integrations/facebook-whatsapp/embed-callback";
 
     // Exchange OAuth code for token
+    const params = new URLSearchParams({
+      client_id: appId,
+      client_secret: appSecret,
+      redirect_uri: redirectUri,
+      code,
+    });
+
     const tokenResponse = await fetch(
-      `https://graph.facebook.com/v20.0/oauth/access_token`,
+      `https://graph.facebook.com/v20.0/oauth/access_token?${params.toString()}`,
       {
         method: "GET",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: appId,
-          client_secret: appSecret,
-          redirect_uri: redirectUri,
-          code,
-        }).toString(),
       }
     );
 
