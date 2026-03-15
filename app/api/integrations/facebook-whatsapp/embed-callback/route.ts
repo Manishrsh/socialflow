@@ -82,7 +82,11 @@ export async function GET(request: NextRequest) {
 
     if (!tokenData.access_token) {
       return NextResponse.json(
-        { error: 'Failed to get access token', redirectUrl: '/dashboard?whatsapp=error' },
+        {
+          error: 'Failed to get access token',
+          metaError: tokenData,
+          redirectUrl: '/dashboard?whatsapp=error'
+        },
         { status: 400 }
       );
     }
