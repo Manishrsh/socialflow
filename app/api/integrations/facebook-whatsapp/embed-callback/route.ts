@@ -81,7 +81,10 @@ export async function GET(request: NextRequest) {
     console.log("[v0] Token exchange response:", tokenData);
 
     if (!tokenData.access_token) {
-      return NextResponse.redirect(new URL("/dashboard?whatsapp=error", request.url));
+      return NextResponse.json(
+        { error: 'Failed to get access token', redirectUrl: '/dashboard?whatsapp=error' },
+        { status: 400 }
+      );
     }
 
     const accessToken = tokenData.access_token;
@@ -95,7 +98,10 @@ export async function GET(request: NextRequest) {
 
     if (!businessesData.data || businessesData.data.length === 0) {
       console.log("[v0] No businesses found");
-      return NextResponse.redirect(new URL("/dashboard?whatsapp=error", request.url));
+      return NextResponse.json(
+        { error: 'No businesses found', redirectUrl: '/dashboard?whatsapp=error' },
+        { status: 400 }
+      );
     }
 
     const businessId = businessesData.data[0].id;
@@ -109,7 +115,10 @@ export async function GET(request: NextRequest) {
 
     if (!wabaData.data || wabaData.data.length === 0) {
       console.log("[v0] No WABA found");
-      return NextResponse.redirect(new URL("/dashboard?whatsapp=error", request.url));
+      return NextResponse.json(
+        { error: 'No WABA found', redirectUrl: '/dashboard?whatsapp=error' },
+        { status: 400 }
+      );
     }
 
     const wabaId = wabaData.data[0].id;
@@ -164,14 +173,18 @@ export async function GET(request: NextRequest) {
 
     console.log("[v0] WhatsApp integration saved");
 
-    return NextResponse.redirect(
-      new URL("/dashboard?whatsapp=connected", request.url)
-    );
+    return NextResponse.json({
+      success: true,
+      message: 'WhatsApp integration saved',
+      redirectUrl: '/dashboard?whatsapp=connected'
+    });
   } catch (error) {
     console.error("[v0] OAuth callback error:", error);
 
-    return NextResponse.redirect(
-      new URL("/dashboard?whatsapp=error", request.url)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: 'Internal Server Error', details: errorMessage, redirectUrl: '/dashboard?whatsapp=error' },
+      { status: 500 }
     );
   }
 }
