@@ -43,8 +43,7 @@ export default function WhatsAppSignup() {
                 (window as any)._fbInitialized = true;
             }
         };
-
-        window.fbAsyncInit = initFb;
+        (window as any).fbAsyncInit = initFb;
 
         if ((window as any).FB) {
             initFb();
