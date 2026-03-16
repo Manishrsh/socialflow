@@ -31,24 +31,34 @@ export default function WhatsAppSignup() {
     const [onboardingPopup, setOnboardingPopup] = useState<Window | null>(null);
 
     useEffect(() => {
-        window.fbAsyncInit = function () {
+        const initFb = () => {
             const FB = (window as any).FB;
-            if (FB) {
+            if (FB && !(window as any)._fbInitialized) {
                 FB.init({
                     appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || 'YOUR_APP_ID',
                     autoLogAppEvents: true,
                     xfbml: true,
-                    version: 'v25.0',
+                    version: 'v20.0',
                 });
+                (window as any)._fbInitialized = true;
             }
         };
 
-        const script = document.createElement('script');
-        script.src = 'https://connect.facebook.net/en_US/sdk.js';
-        script.async = true;
-        script.defer = true;
-        script.crossOrigin = 'anonymous';
-        document.head.appendChild(script);
+        window.fbAsyncInit = initFb;
+
+        if ((window as any).FB) {
+            initFb();
+        }
+
+        if (!document.getElementById('facebook-jssdk')) {
+            const script = document.createElement('script');
+            script.id = 'facebook-jssdk';
+            script.src = 'https://connect.facebook.net/en_US/sdk.js';
+            script.async = true;
+            script.defer = true;
+            script.crossOrigin = 'anonymous';
+            document.head.appendChild(script);
+        }
 
         const handleMessage = (event: MessageEvent) => {
             if (!event.origin.endsWith('facebook.com')) return;
