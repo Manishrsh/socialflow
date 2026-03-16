@@ -9,6 +9,7 @@ import { MessageCircle, RefreshCw, Trash2, AlertCircle, Send, PlusCircle } from 
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
+import WhatsAppSignup from './whatsapp_main';
 
 interface WhatsAppConnection {
   id: string;
@@ -255,171 +256,174 @@ export function WhatsAppConnectCard() {
   }
 
   return (
-    <Card className="p-6">
-      <div className="flex items-start justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="bg-green-100 dark:bg-green-900 p-2 rounded-lg">
-            <MessageCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-lg">WhatsApp Business Account</h3>
-            <p className="text-sm text-foreground/60">Connect your WhatsApp for messaging automation</p>
-          </div>
-        </div>
-      </div>
+    // <Card className="p-6">
+    //   <div className="flex items-start justify-between mb-6">
+    //     <div className="flex items-center gap-3">
+    //       <div className="bg-green-100 dark:bg-green-900 p-2 rounded-lg">
+    //         <MessageCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
+    //       </div>
+    //       <div>
+    //         <h3 className="font-semibold text-lg">WhatsApp Business Account</h3>
+    //         <p className="text-sm text-foreground/60">Connect your WhatsApp for messaging automation</p>
+    //       </div>
+    //     </div>
+    //   </div>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
-          <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-          <span className="text-sm text-red-700 dark:text-red-300">{error}</span>
-        </div>
-      )}
+    //   {error && (
+    //     <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
+    //       <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+    //       <span className="text-sm text-red-700 dark:text-red-300">{error}</span>
+    //     </div>
+    //   )}
 
-      {!connection ? (
-        <div className="space-y-4">
-          <p className="text-sm text-foreground/70">
-            Connect your WhatsApp Business Account to enable automated messaging, broadcasts, and customer management through your workspace.
-          </p>
-          <Button
-            onClick={initiateMobileSignup}
-            disabled={isConnecting}
-            className="w-full"
-            size="lg"
-          >
-            {isConnecting ? (
-              <>
-                <Spinner className="w-4 h-4 mr-2" />
-                Connecting...
-              </>
-            ) : (
-              'Connect WhatsApp Account'
-            )}
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Connected Account Info */}
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
-            <div className="flex items-start justify-between mb-4">
-              <Badge className="bg-green-600 hover:bg-green-700">Connected</Badge>
-              <span className="text-xs text-foreground/60">
-                Connected {new Date(connection.connected_at).toLocaleDateString()}
-              </span>
-            </div>
+    //   {!connection ? (
+    //     <div className="space-y-4">
+    //       <p className="text-sm text-foreground/70">
+    //         Connect your WhatsApp Business Account to enable automated messaging, broadcasts, and customer management through your workspace.
+    //       </p>
+    //       <Button
+    //         onClick={initiateMobileSignup}
+    //         disabled={isConnecting}
+    //         className="w-full"
+    //         size="lg"
+    //       >
+    //         {isConnecting ? (
+    //           <>
+    //             <Spinner className="w-4 h-4 mr-2" />
+    //             Connecting...
+    //           </>
+    //         ) : (
+    //           'Connect WhatsApp Account'
+    //         )}
+    //       </Button>
+    //     </div>
+    //   ) : (
+    //     <div className="space-y-6">
+    //       {/* Connected Account Info */}
+    //       <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+    //         <div className="flex items-start justify-between mb-4">
+    //           <Badge className="bg-green-600 hover:bg-green-700">Connected</Badge>
+    //           <span className="text-xs text-foreground/60">
+    //             Connected {new Date(connection.connected_at).toLocaleDateString()}
+    //           </span>
+    //         </div>
 
-            <div className="space-y-3">
-              {connection.profile_picture_url && (
-                <div className="flex justify-center mb-3">
-                  <img
-                    src={connection.profile_picture_url}
-                    alt={connection.account_name}
-                    className="w-16 h-16 rounded-full object-cover"
-                  />
-                </div>
-              )}
+    //         <div className="space-y-3">
+    //           {connection.profile_picture_url && (
+    //             <div className="flex justify-center mb-3">
+    //               <img
+    //                 src={connection.profile_picture_url}
+    //                 alt={connection.account_name}
+    //                 className="w-16 h-16 rounded-full object-cover"
+    //               />
+    //             </div>
+    //           )}
 
-              <div>
-                <p className="text-xs text-foreground/60 uppercase tracking-wider">Account Name</p>
-                <p className="font-semibold text-foreground">{connection.account_name || 'WhatsApp Business Account'}</p>
-              </div>
+    //           <div>
+    //             <p className="text-xs text-foreground/60 uppercase tracking-wider">Account Name</p>
+    //             <p className="font-semibold text-foreground">{connection.account_name || 'WhatsApp Business Account'}</p>
+    //           </div>
 
-              {connection.phone_number && (
-                <div>
-                  <p className="text-xs text-foreground/60 uppercase tracking-wider">Phone Number</p>
-                  <p className="font-semibold text-foreground">{connection.phone_number}</p>
-                </div>
-              )}
+    //           {connection.phone_number && (
+    //             <div>
+    //               <p className="text-xs text-foreground/60 uppercase tracking-wider">Phone Number</p>
+    //               <p className="font-semibold text-foreground">{connection.phone_number}</p>
+    //             </div>
+    //           )}
 
-              {connection.business_account_id && (
-                <div>
-                  <p className="text-xs text-foreground/60 uppercase tracking-wider">Business Account ID</p>
-                  <p className="font-mono text-sm text-foreground/70 break-all">{connection.business_account_id}</p>
-                </div>
-              )}
-            </div>
-          </div>
+    //           {connection.business_account_id && (
+    //             <div>
+    //               <p className="text-xs text-foreground/60 uppercase tracking-wider">Business Account ID</p>
+    //               <p className="font-mono text-sm text-foreground/70 break-all">{connection.business_account_id}</p>
+    //             </div>
+    //           )}
+    //         </div>
+    //       </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-3">
-            <Button
-              onClick={handleVerify}
-              disabled={isLoading}
-              variant="outline"
-              className="flex-1"
-            >
-              {isLoading ? (
-                <>
-                  <Spinner className="w-4 h-4 mr-2" />
-                  Verifying...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Verify Connection
-                </>
-              )}
-            </Button>
+    //       {/* Action Buttons */}
+    //       <div className="flex gap-3">
+    //         <Button
+    //           onClick={handleVerify}
+    //           disabled={isLoading}
+    //           variant="outline"
+    //           className="flex-1"
+    //         >
+    //           {isLoading ? (
+    //             <>
+    //               <Spinner className="w-4 h-4 mr-2" />
+    //               Verifying...
+    //             </>
+    //           ) : (
+    //             <>
+    //               <RefreshCw className="w-4 h-4 mr-2" />
+    //               Verify Connection
+    //             </>
+    //           )}
+    //         </Button>
 
-            <Button
-              onClick={handleDisconnect}
-              disabled={isLoading}
-              variant="destructive"
-              className="flex-1"
-            >
-              {isLoading ? (
-                <>
-                  <Spinner className="w-4 h-4 mr-2" />
-                  Disconnecting...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Disconnect
-                </>
-              )}
-            </Button>
-          </div>
+    //         <Button
+    //           onClick={handleDisconnect}
+    //           disabled={isLoading}
+    //           variant="destructive"
+    //           className="flex-1"
+    //         >
+    //           {isLoading ? (
+    //             <>
+    //               <Spinner className="w-4 h-4 mr-2" />
+    //               Disconnecting...
+    //             </>
+    //           ) : (
+    //             <>
+    //               <Trash2 className="w-4 h-4 mr-2" />
+    //               Disconnect
+    //             </>
+    //           )}
+    //         </Button>
+    //       </div>
 
-          <div className="pt-4 border-t border-border mt-4">
-            {!showTestForm ? (
-              <Button variant="outline" onClick={() => setShowTestForm(true)} className="w-full border-dashed">
-                <Send className="w-4 h-4 mr-2 text-primary" />
-                Send a Test Message (Meta App Review)
-              </Button>
-            ) : (
-              <div className="bg-muted/30 p-4 border rounded-xl space-y-3">
-                <h4 className="font-semibold text-sm flex items-center gap-2">
-                  <Send className="w-4 h-4 text-primary" /> Send Demo Message
-                </h4>
-                <div>
-                  <label className="text-xs text-foreground/60 mb-1 block">Phone Number (include country code)</label>
-                  <Input
-                    placeholder="e.g. 14155552671"
-                    value={testPhone}
-                    onChange={e => setTestPhone(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-foreground/60 mb-1 block">Message</label>
-                  <textarea
-                    className="w-full text-sm p-2 bg-background border rounded-md"
-                    rows={2}
-                    value={testMessage}
-                    onChange={e => setTestMessage(e.target.value)}
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="ghost" size="sm" onClick={() => setShowTestForm(false)}>Cancel</Button>
-                  <Button size="sm" onClick={handleSendTestMessage} disabled={isTestingMessage || !testPhone}>
-                    {isTestingMessage ? <Spinner className="w-3 h-3 mr-2" /> : <Send className="w-3 h-3 mr-2" />}
-                    Send Message
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </Card>
+    //       <div className="pt-4 border-t border-border mt-4">
+    //         {!showTestForm ? (
+    //           <Button variant="outline" onClick={() => setShowTestForm(true)} className="w-full border-dashed">
+    //             <Send className="w-4 h-4 mr-2 text-primary" />
+    //             Send a Test Message (Meta App Review)
+    //           </Button>
+    //         ) : (
+    //           <div className="bg-muted/30 p-4 border rounded-xl space-y-3">
+    //             <h4 className="font-semibold text-sm flex items-center gap-2">
+    //               <Send className="w-4 h-4 text-primary" /> Send Demo Message
+    //             </h4>
+    //             <div>
+    //               <label className="text-xs text-foreground/60 mb-1 block">Phone Number (include country code)</label>
+    //               <Input
+    //                 placeholder="e.g. 14155552671"
+    //                 value={testPhone}
+    //                 onChange={e => setTestPhone(e.target.value)}
+    //               />
+    //             </div>
+    //             <div>
+    //               <label className="text-xs text-foreground/60 mb-1 block">Message</label>
+    //               <textarea
+    //                 className="w-full text-sm p-2 bg-background border rounded-md"
+    //                 rows={2}
+    //                 value={testMessage}
+    //                 onChange={e => setTestMessage(e.target.value)}
+    //               />
+    //             </div>
+    //             <div className="flex gap-2 justify-end">
+    //               <Button variant="ghost" size="sm" onClick={() => setShowTestForm(false)}>Cancel</Button>
+    //               <Button size="sm" onClick={handleSendTestMessage} disabled={isTestingMessage || !testPhone}>
+    //                 {isTestingMessage ? <Spinner className="w-3 h-3 mr-2" /> : <Send className="w-3 h-3 mr-2" />}
+    //                 Send Message
+    //               </Button>
+    //             </div>
+    //           </div>
+    //         )}
+    //       </div>
+    //     </div>
+    //   )}
+    // </Card>
+    <>
+      <WhatsAppSignup />
+    </>
   );
 }
