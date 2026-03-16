@@ -3,137 +3,117 @@ import { ensureCoreSchema, sql } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
-    await ensureCoreSchema();
-
     const url = new URL(request.url);
-
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
 
-    console.log('WhatsApp OAuth callback hit');
-    console.log('Code:', code);
-    console.log('State:', state);
+    console.log('[v0] WhatsApp OAuth callback hit');
 
     if (!code) {
-      return NextResponse.json(
-        { error: 'Missing OAuth parameter: code is required' },
-        { status: 400 }
+      return new NextResponse(
+        `<html><body><h2>Missing OAuth code parameter</h2><p>Please close this window and try again.</p></body></html>`,
+        { status: 400, headers: { 'Content-Type': 'text/html' } }
       );
     }
 
-    // Prefer workspace provided in state, else allow fallback from env or header.
-    const defaultWorkspaceId = process.env.DEFAULT_WORKSPACE_ID || url.searchParams.get('workspaceId') || request.headers.get('x-workspace-id');
-    const workspaceId = state?.trim() || defaultWorkspaceId?.trim();
+    const workspaceId = state?.trim();
 
     if (!workspaceId) {
-      return NextResponse.json(
-        { error: 'Missing workspace identifier. Please provide state=workspaceId or set DEFAULT_WORKSPACE_ID.' },
-        { status: 400 }
+      return new NextResponse(
+        `<html><body><h2>Missing workspace identifier in state</h2><p>Please close this window and try again.</p></body></html>`,
+        { status: 400, headers: { 'Content-Type': 'text/html' } }
       );
     }
 
-    // Validate UUID format for workspace ID to avoid DB parse errors.
-    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-    if (!uuidRegex.test(workspaceId)) {
-      return NextResponse.json(
-        { error: 'Invalid workspaceId format; expect UUID string.' },
-        { status: 400 }
+    await ensureCoreSchema();
+
+    let appId = process.env.META_APP_ID || process.env.NEXT_PUBLIC_FACEBOOK_APP_ID;
+    let appSecret = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET;
+
+    if (!appId || !appSecret) {
+      return new NextResponse(
+        `<html><body><h2>Server missing Meta credentials</h2><p>Please check your environment variables.</p></body></html>`,
+        { status: 500, headers: { 'Content-Type': 'text/html' } }
       );
     }
 
-    // Load Meta app config
-    let appId = process.env.META_APP_ID || "";
-    let appSecret = process.env.META_APP_SECRET || "";
+    console.log('[v0] Exchanging authorization code for business token for workspace:', workspaceId);
 
-    const metaConfig = await sql`
-      SELECT app_id, app_secret
-      FROM meta_apps
-      WHERE workspace_id = ${workspaceId}
-      ORDER BY is_default DESC
-      LIMIT 1
-    `;
+    // The redirect URI sent in the token exchange must exactly match the one used during popup launch
+    const redirectUri = `${url.origin}/api/integrations/facebook-whatsapp/embed-callback`;
+    console.log('[v0] Using token exchange redirect URI:', redirectUri);
 
-    if (metaConfig.length > 0) {
-      appId = metaConfig[0].app_id || appId;
-      appSecret = metaConfig[0].app_secret || appSecret;
-    }
-
-    const redirectUri =
-      "https://socialflow-gxnk.vercel.app/api/integrations/facebook-whatsapp/embed-callback";
-
-    // Exchange OAuth code for token
-    const params = new URLSearchParams({
-      client_id: appId,
-      client_secret: appSecret,
-      redirect_uri: redirectUri,
-      code,
-    });
-
+    // Step 1: Exchange code for business token
     const tokenResponse = await fetch(
-      `https://graph.facebook.com/v20.0/oauth/access_token?${params.toString()}`,
+      'https://graph.facebook.com/v21.0/oauth/access_token',
       {
-        method: "GET",
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_id: appId,
+          client_secret: appSecret,
+          redirect_uri: redirectUri,
+          code: code
+        }).toString(),
       }
     );
 
     const tokenData = await tokenResponse.json();
 
-    console.log("[v0] Token exchange response:", tokenData);
-
-    if (!tokenData.access_token) {
-      return NextResponse.json(
-        {
-          error: 'Failed to get access token',
-          metaError: tokenData,
-          redirectUrl: '/dashboard?whatsapp=error'
-        },
-        { status: 400 }
+    if (tokenData.error) {
+      console.error('[v0] Token exchange failed:', tokenData.error);
+      return new NextResponse(
+        `<html><body><h2>Facebook Token Exchange Failed</h2><p>${tokenData.error.message}</p></body></html>`,
+        { status: 400, headers: { 'Content-Type': 'text/html' } }
       );
     }
 
+    if (!tokenData.access_token) {
+      console.error('[v0] No access token in response');
+      return new NextResponse(
+        `<html><body><h2>No access token received from Facebook</h2></body></html>`,
+        { status: 400, headers: { 'Content-Type': 'text/html' } }
+      );
+    }
+
+    console.log('[v0] Token exchange successful, fetching account details');
     const accessToken = tokenData.access_token;
 
     // Get businesses
     const businessesRes = await fetch(
-      `https://graph.facebook.com/v20.0/me/businesses?access_token=${accessToken}`
+      `https://graph.facebook.com/v21.0/me/businesses?access_token=${accessToken}`
     );
-
     const businessesData = await businessesRes.json();
 
     if (!businessesData.data || businessesData.data.length === 0) {
-      console.log("[v0] No businesses found");
-      return NextResponse.json(
-        { error: 'No businesses found', redirectUrl: '/dashboard?whatsapp=error' },
-        { status: 400 }
+      return new NextResponse(
+        `<html><body><h2>No businesses found for this account.</h2><p>Please ensure you complete the business setup.</p></body></html>`,
+        { status: 400, headers: { 'Content-Type': 'text/html' } }
       );
     }
-
     const businessId = businessesData.data[0].id;
 
     // Get WABA
     const wabaRes = await fetch(
-      `https://graph.facebook.com/v20.0/${businessId}/owned_whatsapp_business_accounts?access_token=${accessToken}`
+      `https://graph.facebook.com/v21.0/${businessId}/owned_whatsapp_business_accounts?access_token=${accessToken}`
     );
-
     const wabaData = await wabaRes.json();
 
     if (!wabaData.data || wabaData.data.length === 0) {
-      console.log("[v0] No WABA found");
-      return NextResponse.json(
-        { error: 'No WABA found', redirectUrl: '/dashboard?whatsapp=error' },
-        { status: 400 }
+      return new NextResponse(
+        `<html><body><h2>No WhatsApp Business Account found.</h2><p>Please ensure you complete the setup.</p></body></html>`,
+        { status: 400, headers: { 'Content-Type': 'text/html' } }
       );
     }
-
     const wabaId = wabaData.data[0].id;
 
     // Get phone numbers
     const phoneRes = await fetch(
-      `https://graph.facebook.com/v20.0/${wabaId}/phone_numbers?access_token=${accessToken}`
+      `https://graph.facebook.com/v21.0/${wabaId}/phone_numbers?access_token=${accessToken}`
     );
-
     const phoneData = await phoneRes.json();
-
     const phone = phoneData?.data?.[0];
 
     const credentials = {
@@ -175,20 +155,50 @@ export async function GET(request: NextRequest) {
       `;
     }
 
-    console.log("[v0] WhatsApp integration saved");
+    console.log("[v0] WhatsApp integration saved successfully via embed callback!");
 
-    return NextResponse.json({
-      success: true,
-      message: 'WhatsApp integration saved',
-      redirectUrl: '/dashboard?whatsapp=connected'
+    // Return HTML that posts the success message back to the parent and closes the popup
+    const htmlResponse = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>WhatsApp Connected Successfully</title>
+          <style>
+              body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f0fdf4; color: #166534; flex-direction: column; }
+              .spinner { border: 4px solid rgba(0,0,0,0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: #166534; animation: spin 1s linear infinite; margin-top: 20px;}
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          </style>
+      </head>
+      <body>
+          <h2>WhatsApp Connected!</h2>
+          <p>Saving configuration...</p>
+          <div class="spinner"></div>
+          <script>
+              // Send message to parent window
+              if (window.opener) {
+                  window.opener.postMessage({ type: 'WA_CALLBACK_SUCCESS' }, '*');
+              }
+              // Close the popup after a brief delay
+              setTimeout(function() {
+                  window.close();
+              }, 1500);
+          </script>
+      </body>
+      </html>
+    `;
+
+    return new NextResponse(htmlResponse, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' }
     });
-  } catch (error) {
-    console.error("[v0] OAuth callback error:", error);
 
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { error: 'Internal Server Error', details: errorMessage, redirectUrl: '/dashboard?whatsapp=error' },
-      { status: 500 }
+  } catch (error: any) {
+    console.error('[v0] OAuth callback error:', error);
+    return new NextResponse(
+      `<html><body><h2>Internal Server Error</h2><p>${error?.message}</p></body></html>`,
+      { status: 500, headers: { 'Content-Type': 'text/html' } }
     );
   }
 }

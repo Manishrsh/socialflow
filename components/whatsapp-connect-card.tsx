@@ -58,83 +58,14 @@ export function WhatsAppConnectCard() {
   // Listen for embedded signup POST messages from Facebook SDK
   useEffect(() => {
     const onMessage = async (event: MessageEvent) => {
-      if (!event.origin.endsWith('facebook.com')) return;
+      // Allow messages from our own origin or facebook
+      if (typeof event.data !== 'object') return;
 
-      let data: any;
-      try {
-        data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-      } catch (err) {
-        console.debug('[v0] Unable to parse message event data', err);
-        return;
-      }
-
-      if (data?.type !== 'WA_EMBEDDED_SIGNUP') return;
-      console.log('[v0] FB embedded signup event:', data);
-
-      if (!workspace?.id) return;
-
-      // Only handle success events
-      if (!['FINISH', 'FINISH_ONLY_WABA', 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING'].includes(data.event)) {
-        console.log('[v0] Embedded signup event not finish:', data.event);
-        return;
-      }
-
-      setIsConnecting(true);
-
-      try {
-        const code = data.data?.code;
-        const accessToken = data.data?.access_token;
-
-        if (code) {
-          // Use the code exchange endpoint as you requested
-          const res = await fetch('/api/integrations/facebook-whatsapp/exchange-code', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              workspaceId: workspace.id,
-              code: code,
-            }),
-          });
-          const result = await res.json();
-          if (res.ok && result.success) {
-            toast.success('WhatsApp account connected successfully!');
-            await loadConnection();
-            if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
-            return;
-          }
-        }
-
-        // Fallback for access_token or old payload
-        const payload = {
-          workspaceId: workspace.id,
-          eventData: data.data || {},
-          access_token: accessToken || '',
-          phone_number_id: data.data?.phone_number_id || '',
-          business_id: data.data?.business_id || '',
-          waba_id: data.data?.waba_id || '',
-        };
-
-        const res = await fetch('/api/integrations/facebook-whatsapp/embed-callback', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        const result = await res.json();
-        if (res.ok && result.success) {
-          await loadConnection();
-          toast.success('WhatsApp account connected successfully!');
-          if (popupRef.current && !popupRef.current.closed) {
-            popupRef.current.close();
-          }
-        } else {
-          console.error('[v0] Embedded signup save failed:', result);
-          toast.error('Failed to save WhatsApp connection');
-        }
-      } catch (err) {
-        console.error('[v0] Embedded signup handler error:', err);
-        toast.error('Failed to process WhatsApp connection');
-      } finally {
+      if (event.data?.type === 'WA_CALLBACK_SUCCESS') {
+        console.log('[v0] Success message received from popup callback');
+        toast.success('WhatsApp account connected successfully!');
+        if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
+        await loadConnection();
         setIsConnecting(false);
       }
     };
@@ -200,8 +131,8 @@ export function WhatsAppConnectCard() {
     setIsConnecting(true);
 
     // Ensure we use the proper callback/origin URL (localhost or vercel domain)
-    // The onboard flow mandates a redirect_uri but we intercept the postMessage before it navigates away fully
-    const callbackUrl = window.location.origin;
+    // The onboard flow mandates a redirect_uri. We point it to our backend callback which will securely exchange the token and close the popup.
+    const callbackUrl = `${window.location.origin}/api/integrations/facebook-whatsapp/embed-callback`;
     const state = encodeURIComponent(workspace.id);
 
     const popupUrl =
