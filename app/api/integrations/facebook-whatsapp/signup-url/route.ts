@@ -86,17 +86,12 @@ export async function GET(request: NextRequest) {
     // Pass workspaceId via state
     const state = encodeURIComponent(workspaceId);
 
-    const signupUrl =
-      `https://business.facebook.com/messaging/whatsapp/onboard/` +
-      `?app_id=${appId}` +
-      `&config_id=${configId}` +
-      `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
-      `&state=${state}` +
-      `&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D`;
+    console.log('[v0] Providing Facebook App ID and Config ID for workspace:', workspaceId);
 
-    console.log('[v0] Generated signup URL for workspace:', workspaceId);
-
-    return NextResponse.json({ url: signupUrl });
+    return NextResponse.json({
+      appId,
+      configId
+    });
 
   } catch (error: any) {
     console.error('[v0] Signup URL error:', error);

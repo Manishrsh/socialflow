@@ -5,9 +5,10 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
-import { MessageCircle, RefreshCw, Trash2, AlertCircle } from 'lucide-react';
+import { MessageCircle, RefreshCw, Trash2, AlertCircle, Send, PlusCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
+import { Input } from '@/components/ui/input';
 
 interface WhatsAppConnection {
   id: string;
@@ -28,6 +29,13 @@ export function WhatsAppConnectCard() {
   const [error, setError] = useState<string | null>(null);
   const popupRef = useRef<Window | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [testPhone, setTestPhone] = useState('');
+  const [testMessage, setTestMessage] = useState('Hello from WareChat! Let me know if you receive this.');
+  const [isTestingMessage, setIsTestingMessage] = useState(false);
+  const [showTestForm, setShowTestForm] = useState(false);
+
+  const [metaConfig, setMetaConfig] = useState<{ appId: string, configId: string } | null>(null);
 
   // Load existing connection on mount
   useEffect(() => {
@@ -133,6 +141,54 @@ export function WhatsAppConnectCard() {
         setConnection(null);
         console.log('[v0] No connection found');
       }
+
+      // Pre-fetch App Config and pre-load SDK
+      if (!metaConfig) {
+        try {
+          const configRes = await fetch(`/api/integrations/facebook-whatsapp/signup-url?workspaceId=${workspace?.id}`);
+          const configData = await configRes.json();
+          if (configData.appId && configData.configId) {
+            setMetaConfig({ appId: configData.appId, configId: configData.configId });
+
+            // Ensure FB SDK is loaded
+            if (!(window as any).FB) {
+              (window as any).fbAsyncInit = function () {
+                (window as any).FB.init({
+                  appId: configData.appId,
+                  cookie: true,
+                  xfbml: true,
+                  version: 'v21.0'
+                });
+                console.log('[v0] FB SDK Initialized');
+              };
+
+              (function (d, s, id) {
+                var js, fjs = d.getElementsByTagName(s)[0];
+                if (d.getElementById(id)) { return; }
+                js = d.createElement(s) as HTMLScriptElement; js.id = id;
+                js.src = "https://connect.facebook.net/en_US/sdk.js";
+                if (fjs && fjs.parentNode) {
+                  fjs.parentNode.insertBefore(js, fjs);
+                } else {
+                  d.head.appendChild(js);
+                }
+              }(document, 'script', 'facebook-jssdk'));
+            } else {
+              // Note: If already initialized with another appId, this might have no effect, 
+              // but it's good practice.
+              (window as any).FB.init({
+                appId: configData.appId,
+                cookie: true,
+                xfbml: true,
+                version: 'v21.0'
+              });
+            }
+          }
+        } catch (err) {
+          console.error('[v0] Error getting config:', err);
+        }
+      }
+
     } catch (err) {
       console.error('[v0] Failed to load WhatsApp connection:', err);
       setError('Failed to load connection status');
@@ -147,75 +203,71 @@ export function WhatsAppConnectCard() {
       return;
     }
 
+    if (!metaConfig || !metaConfig.appId || !metaConfig.configId) {
+      toast.error('Missing Meta config. Please wait or check your variables.');
+      return;
+    }
+
+    if (!(window as any).FB) {
+      toast.error('Facebook SDK is still loading or failed to load. Please try again or disable adblockers.');
+      return;
+    }
+
     setIsConnecting(true);
-    
-    // Get the signup URL from the backend
-    fetch(`/api/integrations/facebook-whatsapp/signup-url?workspaceId=${workspace.id}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.url) {
-          console.log('[v0] Opening WhatsApp signup popup with URL');
-          // Open embedded signup in popup
-          popupRef.current = window.open(
-            data.url,
-            'whatsapp-signup',
-            'width=600,height=700,top=100,left=100'
-          );
+    try {
+      launchFBLogin(metaConfig.configId);
+    } catch (e) {
+      console.error(e);
+      toast.error('Error launching Facebook login');
+      setIsConnecting(false);
+    }
+  };
 
-          // Start polling for connection after popup opens
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-          }
+  const launchFBLogin = (configId: string) => {
+    (window as any).FB.login((response: any) => {
+      if (response.authResponse && response.authResponse.code) {
+        toast.info('Authenticating with Meta...');
+        const code = response.authResponse.code;
 
-          // Poll to check if connection was established
-          pollingIntervalRef.current = setInterval(async () => {
-            try {
-              const res = await fetch(`/api/integrations/facebook-whatsapp?workspaceId=${workspace.id}`);
-              const data = await res.json();
-              
-              if (data.connection) {
-                console.log('[v0] Connection detected after popup! Reloading...');
-                setConnection(data.connection);
-                setIsConnecting(false);
-                if (pollingIntervalRef.current) {
-                  clearInterval(pollingIntervalRef.current);
-                }
-                toast.success('WhatsApp account connected successfully!');
-                
-                // Close popup if still open
-                if (popupRef.current && !popupRef.current.closed) {
-                  popupRef.current.close();
-                }
-              }
-            } catch (err) {
-              console.error('[v0] Polling error:', err);
+        fetch('/api/integrations/facebook-whatsapp/exchange-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workspaceId: workspace?.id,
+            code: code,
+          })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              toast.success('WhatsApp account connected successfully!');
+              loadConnection();
+            } else {
+              console.error('[v0] Token exchange error:', data);
+              toast.error(data.error || 'Failed to connect WhatsApp account');
             }
-          }, 1500);
-
-          // Also listen for popup close
-          const checkPopupClosed = setInterval(() => {
-            if (popupRef.current?.closed) {
-              clearInterval(checkPopupClosed);
-              // Give it a final check
-              setTimeout(() => {
-                loadConnection();
-                setIsConnecting(false);
-                if (pollingIntervalRef.current) {
-                  clearInterval(pollingIntervalRef.current);
-                }
-              }, 500);
-            }
-          }, 1000);
-        } else {
-          toast.error('Unable to get signup URL');
-          setIsConnecting(false);
-        }
-      })
-      .catch(err => {
-        console.error('[v0] Error getting signup URL:', err);
-        toast.error('Failed to initiate connection');
+          })
+          .catch(err => {
+            console.error('[v0] Exchange error:', err);
+            toast.error('Error during token exchange');
+          })
+          .finally(() => {
+            setIsConnecting(false);
+          });
+      } else {
+        toast.error('Login cancelled or failed');
+        console.error('FB Login response without code:', response);
         setIsConnecting(false);
-      });
+      }
+    }, {
+      config_id: configId,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: {
+        setup: {},
+        feature: "whatsapp_embedded_signup"
+      }
+    });
   };
 
   const handleVerify = async () => {
@@ -266,6 +318,37 @@ export function WhatsAppConnectCard() {
       toast.error('Failed to disconnect account');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSendTestMessage = async () => {
+    if (!workspace?.id || !testPhone) {
+      toast.error('Please enter a phone number format: e.g. 1234567890');
+      return;
+    }
+    setIsTestingMessage(true);
+    try {
+      const res = await fetch('/api/integrations/facebook-whatsapp/test-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId: workspace.id,
+          phone: testPhone.replace(/[^0-9]/g, ''),
+          message: testMessage,
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success('Test message sent successfully!');
+        setTestPhone('');
+        setShowTestForm(false);
+      } else {
+        toast.error(data.error || 'Failed to send test message');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Error occurred');
+    } finally {
+      setIsTestingMessage(false);
     }
   };
 
@@ -403,6 +486,45 @@ export function WhatsAppConnectCard() {
                 </>
               )}
             </Button>
+          </div>
+
+          <div className="pt-4 border-t border-border mt-4">
+            {!showTestForm ? (
+              <Button variant="outline" onClick={() => setShowTestForm(true)} className="w-full border-dashed">
+                <Send className="w-4 h-4 mr-2 text-primary" />
+                Send a Test Message (Meta App Review)
+              </Button>
+            ) : (
+              <div className="bg-muted/30 p-4 border rounded-xl space-y-3">
+                <h4 className="font-semibold text-sm flex items-center gap-2">
+                  <Send className="w-4 h-4 text-primary" /> Send Demo Message
+                </h4>
+                <div>
+                  <label className="text-xs text-foreground/60 mb-1 block">Phone Number (include country code)</label>
+                  <Input
+                    placeholder="e.g. 14155552671"
+                    value={testPhone}
+                    onChange={e => setTestPhone(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-foreground/60 mb-1 block">Message</label>
+                  <textarea
+                    className="w-full text-sm p-2 bg-background border rounded-md"
+                    rows={2}
+                    value={testMessage}
+                    onChange={e => setTestMessage(e.target.value)}
+                  />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => setShowTestForm(false)}>Cancel</Button>
+                  <Button size="sm" onClick={handleSendTestMessage} disabled={isTestingMessage || !testPhone}>
+                    {isTestingMessage ? <Spinner className="w-3 h-3 mr-2" /> : <Send className="w-3 h-3 mr-2" />}
+                    Send Message
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

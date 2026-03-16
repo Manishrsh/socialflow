@@ -304,6 +304,20 @@ export async function ensureCoreSchema(): Promise<void> {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS whatsapp_templates (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(100) NOT NULL,
+        language VARCHAR(50) NOT NULL,
+        status VARCHAR(50) DEFAULT 'APPROVED',
+        components JSONB DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    await sql`
       CREATE INDEX IF NOT EXISTS idx_meta_apps_workspace_id
       ON meta_apps(workspace_id)
     `;
