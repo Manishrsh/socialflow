@@ -260,13 +260,9 @@ export function WhatsAppConnectCard() {
         setIsConnecting(false);
       }
     }, {
-      config_id: configId,
+      scope: 'business_management,whatsapp_business_management,whatsapp_business_messaging',
       response_type: 'code',
-      override_default_response_type: true,
-      extras: {
-        setup: {},
-        feature: "whatsapp_embedded_signup"
-      }
+      override_default_response_type: true
     });
   };
 
