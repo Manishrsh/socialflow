@@ -82,10 +82,33 @@ export function WhatsAppConnectCard() {
       setIsConnecting(true);
 
       try {
+        const code = data.data?.code;
+        const accessToken = data.data?.access_token;
+
+        if (code) {
+          // Use the code exchange endpoint as you requested
+          const res = await fetch('/api/integrations/facebook-whatsapp/exchange-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workspaceId: workspace.id,
+              code: code,
+            }),
+          });
+          const result = await res.json();
+          if (res.ok && result.success) {
+            toast.success('WhatsApp account connected successfully!');
+            await loadConnection();
+            if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
+            return;
+          }
+        }
+
+        // Fallback for access_token or old payload
         const payload = {
           workspaceId: workspace.id,
           eventData: data.data || {},
-          access_token: data.data?.access_token || '',
+          access_token: accessToken || '',
           phone_number_id: data.data?.phone_number_id || '',
           business_id: data.data?.business_id || '',
           waba_id: data.data?.waba_id || '',
@@ -142,47 +165,13 @@ export function WhatsAppConnectCard() {
         console.log('[v0] No connection found');
       }
 
-      // Pre-fetch App Config and pre-load SDK
+      // Pre-fetch App Config
       if (!metaConfig) {
         try {
           const configRes = await fetch(`/api/integrations/facebook-whatsapp/signup-url?workspaceId=${workspace?.id}`);
           const configData = await configRes.json();
           if (configData.appId && configData.configId) {
             setMetaConfig({ appId: configData.appId, configId: configData.configId });
-
-            // Ensure FB SDK is loaded
-            if (!(window as any).FB) {
-              (window as any).fbAsyncInit = function () {
-                (window as any).FB.init({
-                  appId: configData.appId,
-                  cookie: true,
-                  xfbml: true,
-                  version: 'v21.0'
-                });
-                console.log('[v0] FB SDK Initialized');
-              };
-
-              (function (d, s, id) {
-                var js, fjs = d.getElementsByTagName(s)[0];
-                if (d.getElementById(id)) { return; }
-                js = d.createElement(s) as HTMLScriptElement; js.id = id;
-                js.src = "https://connect.facebook.net/en_US/sdk.js";
-                if (fjs && fjs.parentNode) {
-                  fjs.parentNode.insertBefore(js, fjs);
-                } else {
-                  d.head.appendChild(js);
-                }
-              }(document, 'script', 'facebook-jssdk'));
-            } else {
-              // Note: If already initialized with another appId, this might have no effect, 
-              // but it's good practice.
-              (window as any).FB.init({
-                appId: configData.appId,
-                cookie: true,
-                xfbml: true,
-                version: 'v21.0'
-              });
-            }
           }
         } catch (err) {
           console.error('[v0] Error getting config:', err);
@@ -208,62 +197,38 @@ export function WhatsAppConnectCard() {
       return;
     }
 
-    if (!(window as any).FB) {
-      toast.error('Facebook SDK is still loading or failed to load. Please try again or disable adblockers.');
-      return;
-    }
-
     setIsConnecting(true);
-    try {
-      launchFBLogin(metaConfig.configId);
-    } catch (e) {
-      console.error(e);
-      toast.error('Error launching Facebook login');
-      setIsConnecting(false);
-    }
-  };
 
-  const launchFBLogin = (configId: string) => {
-    (window as any).FB.login((response: any) => {
-      if (response.authResponse && response.authResponse.code) {
-        toast.info('Authenticating with Meta...');
-        const code = response.authResponse.code;
+    // Ensure we use the proper callback/origin URL (localhost or vercel domain)
+    // The onboard flow mandates a redirect_uri but we intercept the postMessage before it navigates away fully
+    const callbackUrl = window.location.origin;
+    const state = encodeURIComponent(workspace.id);
 
-        fetch('/api/integrations/facebook-whatsapp/exchange-code', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workspaceId: workspace?.id,
-            code: code,
-          })
-        })
-          .then(res => res.json())
-          .then(data => {
-            if (data.success) {
-              toast.success('WhatsApp account connected successfully!');
-              loadConnection();
-            } else {
-              console.error('[v0] Token exchange error:', data);
-              toast.error(data.error || 'Failed to connect WhatsApp account');
-            }
-          })
-          .catch(err => {
-            console.error('[v0] Exchange error:', err);
-            toast.error('Error during token exchange');
-          })
-          .finally(() => {
-            setIsConnecting(false);
-          });
-      } else {
-        toast.error('Login cancelled or failed');
-        console.error('FB Login response without code:', response);
-        setIsConnecting(false);
+    const popupUrl =
+      `https://business.facebook.com/messaging/whatsapp/onboard/` +
+      `?app_id=${metaConfig.appId}` +
+      `&config_id=${metaConfig.configId}` +
+      `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+      `&state=${state}` +
+      `&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v3%22%7D`;
+
+    // Open synchronously to bypass browser popup blockers
+    popupRef.current = window.open(
+      popupUrl,
+      'whatsapp-signup',
+      'width=600,height=700,top=100,left=100'
+    );
+
+    // Safety check - reset isConnecting if popup closed without completing
+    const checkPopupClosed = setInterval(() => {
+      if (popupRef.current?.closed) {
+        clearInterval(checkPopupClosed);
+        setTimeout(() => {
+          setIsConnecting(false);
+          loadConnection();
+        }, 1000);
       }
-    }, {
-      scope: 'business_management,whatsapp_business_management,whatsapp_business_messaging',
-      response_type: 'code',
-      override_default_response_type: true
-    });
+    }, 1000);
   };
 
   const handleVerify = async () => {
