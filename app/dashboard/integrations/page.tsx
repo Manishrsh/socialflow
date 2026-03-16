@@ -336,351 +336,39 @@ export default function IntegrationsPage() {
   };
 
   return (
-    <div className="space-y-8 max-w-4xl">
+    <div className="space-y-8 max-w-4xl mx-auto py-8">
       <div>
         <h1 className="text-3xl font-bold">Integrations</h1>
-        <p className="text-foreground/60 mt-2">Own BSP mode enabled. External provider controls are disabled.</p>
+        <p className="text-foreground/60 mt-2">Connect your WhatsApp Business Account to start sending messages.</p>
       </div>
 
-      <Card className="p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Webhook className="w-5 h-5" />
-          <h2 className="text-xl font-semibold">SaaS Onboarding Wizard</h2>
-        </div>
-        {!onboarding ? (
-          <div className="text-sm text-foreground/60">Loading onboarding status...</div>
-        ) : (
-          <div className="space-y-4">
-            <div className="text-sm">
-              Progress: <span className="font-semibold">{onboarding?.progress?.percent || 0}%</span>{' '}
-              ({onboarding?.progress?.completedSteps || 0}/{onboarding?.progress?.totalSteps || 4})
-            </div>
-
-            <div className="space-y-2 text-sm">
-              <div className={onboarding?.checks?.deliveryModeMeta ? 'text-green-600' : 'text-orange-600'}>
-                1. Delivery Mode = Meta API {onboarding?.checks?.deliveryModeMeta ? '[DONE]' : '[PENDING]'}
-              </div>
-              <div className={onboarding?.checks?.hasDefaultMetaApp && onboarding?.checks?.hasWhatsappCredentials ? 'text-green-600' : 'text-orange-600'}>
-                2. Default Meta App + WhatsApp credentials {onboarding?.checks?.hasDefaultMetaApp && onboarding?.checks?.hasWhatsappCredentials ? '[DONE]' : '[PENDING]'}
-              </div>
-              <div className={onboarding?.checks?.webhookConfiguredToken ? 'text-green-600' : 'text-orange-600'}>
-                3. Webhook token configured in server env {onboarding?.checks?.webhookConfiguredToken ? '[DONE]' : '[PENDING]'}
-              </div>
-              <div className={onboarding?.checks?.autoProcessEnabled ? 'text-green-600' : 'text-orange-600'}>
-                4. Auto-process enabled {onboarding?.checks?.autoProcessEnabled ? '[DONE]' : '[PENDING]'}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={handleQuickEnableMetaMode}>
-                Enable Meta Mode
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!metaConfig?.urls?.whatsappEmbeddedSignupUrl || isOpeningEmbeddedSignup}
-                onClick={handleOpenEmbeddedSignupPopup}
-              >
-                {isOpeningEmbeddedSignup ? 'Opening...' : 'Open Embedded Signup'}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleCopyText(onboarding.webhookUrl)}>
-                Copy Webhook URL
-              </Button>
-              <Button size="sm" variant="outline" onClick={loadMetaData}>
-                Refresh Wizard
-              </Button>
-            </div>
-
-            <div className="text-xs text-foreground/60">
-              Next: add default Meta app below, then send a test message.
-            </div>
+      <Card className="p-8">
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-2">
+            <Webhook className="w-8 h-8 text-primary" />
           </div>
-        )}
-      </Card>
+          <h2 className="text-2xl font-semibold">WhatsApp Integration</h2>
+          <p className="text-center text-foreground/60 max-w-md mb-6">
+            To start using our platform, you need to connect your WhatsApp Business Account.
+          </p>
 
-      <Card className="p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Send className="w-5 h-5" />
-          <h2 className="text-xl font-semibold">Delivery Mode (Workspace)</h2>
-        </div>
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <select
-              value={ownBspConfig.executionMode}
-              onChange={(e) =>
-                setOwnBspConfig((p) => ({ ...p, executionMode: e.target.value }))
-              }
-              className="px-3 py-2 rounded-lg border border-border bg-background"
-            >
-              <option value="meta">Meta API (Recommended)</option>
-              <option value="provider">Provider Webhook</option>
-              <option value="manual">Manual Queue</option>
-              <option value="simulate">Simulate (No real send)</option>
-            </select>
-            <Input
-              type="number"
-              min={1000}
-              value={ownBspConfig.providerTimeoutMs}
-              onChange={(e) =>
-                setOwnBspConfig((p) => ({
-                  ...p,
-                  providerTimeoutMs: Number(e.target.value || 15000),
-                }))
-              }
-              placeholder="Provider timeout ms"
-            />
-            <Input
-              value={ownBspConfig.providerSendUrl}
-              onChange={(e) =>
-                setOwnBspConfig((p) => ({ ...p, providerSendUrl: e.target.value }))
-              }
-              placeholder="Provider send URL (only for provider mode)"
-              className="md:col-span-2"
-            />
-          </div>
-          <label className="text-sm flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={ownBspConfig.autoProcess}
-              onChange={(e) =>
-                setOwnBspConfig((p) => ({ ...p, autoProcess: e.target.checked }))
-              }
-            />
-            Auto process outbox
-          </label>
-          <Button onClick={handleSaveOwnBspConfig} disabled={isSavingOwnBspConfig}>
-            {isSavingOwnBspConfig ? 'Saving...' : 'Save Delivery Config'}
+          <Button
+            size="lg"
+            className="w-full sm:w-auto px-8 py-6 text-lg"
+            disabled={!metaConfig?.urls?.whatsappEmbeddedSignupUrl || isOpeningEmbeddedSignup}
+            onClick={handleOpenEmbeddedSignupPopup}
+          >
+            {isOpeningEmbeddedSignup ? 'Opening...' : 'Connect WhatsApp'}
           </Button>
-          <div className="text-xs text-foreground/60">
-            For real SaaS sending with your Meta app, use mode <code>meta</code> and set default Meta app credentials below.
-          </div>
-        </div>
-      </Card>
 
-      <Card className="p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Webhook className="w-5 h-5" />
-          <h2 className="text-xl font-semibold">Meta Apps</h2>
-        </div>
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Input
-              placeholder="Meta app name"
-              value={metaForm.name}
-              onChange={(e) => setMetaForm((p) => ({ ...p, name: e.target.value }))}
-            />
-            <Input
-              placeholder="Meta app ID"
-              value={metaForm.appId}
-              onChange={(e) => setMetaForm((p) => ({ ...p, appId: e.target.value }))}
-            />
-            <Input
-              placeholder="Meta app secret"
-              value={metaForm.appSecret}
-              onChange={(e) => setMetaForm((p) => ({ ...p, appSecret: e.target.value }))}
-            />
-            <Input
-              placeholder="Embedded signup config ID"
-              value={metaForm.configId}
-              onChange={(e) => setMetaForm((p) => ({ ...p, configId: e.target.value }))}
-            />
-            <Input
-              placeholder="Meta redirect URI"
-              value={metaForm.redirectUri}
-              onChange={(e) => setMetaForm((p) => ({ ...p, redirectUri: e.target.value }))}
-            />
-            <Input
-              placeholder="Meta business ID"
-              value={metaForm.businessId}
-              onChange={(e) => setMetaForm((p) => ({ ...p, businessId: e.target.value }))}
-            />
-            <Input
-              placeholder="Webhook verify token"
-              value={metaForm.webhookVerifyToken}
-              onChange={(e) => setMetaForm((p) => ({ ...p, webhookVerifyToken: e.target.value }))}
-            />
-            <Input
-              placeholder="WhatsApp phone number ID"
-              value={metaForm.whatsappPhoneNumberId}
-              onChange={(e) => setMetaForm((p) => ({ ...p, whatsappPhoneNumberId: e.target.value }))}
-            />
-            <Input
-              placeholder="WhatsApp access token"
-              value={metaForm.whatsappAccessToken}
-              onChange={(e) => setMetaForm((p) => ({ ...p, whatsappAccessToken: e.target.value }))}
-            />
-            <Input
-              placeholder="Instagram business account ID"
-              value={metaForm.instagramBusinessAccountId}
-              onChange={(e) => setMetaForm((p) => ({ ...p, instagramBusinessAccountId: e.target.value }))}
-            />
-            <Input
-              placeholder="Instagram access token"
-              value={metaForm.instagramAccessToken}
-              onChange={(e) => setMetaForm((p) => ({ ...p, instagramAccessToken: e.target.value }))}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <label className="text-sm flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={metaForm.isDefault}
-                onChange={(e) => setMetaForm((p) => ({ ...p, isDefault: e.target.checked }))}
-              />
-              Set as default app
-            </label>
-            <Button onClick={handleAddMetaApp} disabled={isSavingMetaApp}>
-              {isSavingMetaApp ? 'Saving...' : 'Add Meta App'}
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            {metaApps.length === 0 ? (
-              <div className="text-sm text-foreground/60">No Meta apps added yet.</div>
-            ) : (
-              metaApps.map((app) => (
-                <div key={app.id} className="border rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="text-sm">
-                    <div className="font-medium">{app.name}</div>
-                    <div className="text-foreground/60">App ID: {app.appId}</div>
-                    <div className="text-foreground/60">Config ID: {app.configId || 'Not set'}</div>
-                    <div className="text-foreground/60">Secret: {app.appSecretMasked || 'Not set'}</div>
-                    <div className="text-foreground/60">WA Phone ID: {app.whatsappPhoneNumberId || 'Not set'}</div>
-                    <div className="text-foreground/60">WA Token: {app.whatsappAccessTokenMasked || 'Not set'}</div>
-                    <div className="text-foreground/60">IG Business ID: {app.instagramBusinessAccountId || 'Not set'}</div>
-                    <div className="text-foreground/60">IG Token: {app.instagramAccessTokenMasked || 'Not set'}</div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant={app.isDefault ? 'default' : 'outline'}
-                      onClick={() => handleSetDefaultMetaApp(app.id)}
-                      disabled={app.isDefault}
-                    >
-                      <Star className="w-4 h-4 mr-1" />
-                      {app.isDefault ? 'Default' : 'Set Default'}
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => handleDeleteMetaApp(app.id)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {!metaConfig ? (
-            <div className="text-sm text-foreground/60">Loading Meta config...</div>
-          ) : (
-            <div className="space-y-3 pt-2">
-              <div className="text-sm">
-                Default app status:{' '}
-                <span className={metaConfig.configured ? 'text-green-600 font-semibold' : 'text-orange-600 font-semibold'}>
-                  {metaConfig.configured ? 'Configured' : 'Missing Keys'}
-                </span>
-              </div>
-              {Array.isArray(metaConfig?.missing) && metaConfig.missing.length > 0 && (
-                <div className="text-xs text-foreground/70">
-                  Missing: {metaConfig.missing.join(', ')}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium mb-2">WhatsApp Embedded Signup URL</label>
-                <div className="flex gap-2">
-                  <Input readOnly value={metaConfig?.urls?.whatsappEmbeddedSignupUrl || 'Set appId + configId in default Meta app'} />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!metaConfig?.urls?.whatsappEmbeddedSignupUrl || isOpeningEmbeddedSignup}
-                    onClick={handleOpenEmbeddedSignupPopup}
-                  >
-                    {isOpeningEmbeddedSignup ? 'Opening...' : 'Open'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!metaConfig?.urls?.whatsappEmbeddedSignupUrl}
-                    onClick={() => handleCopyText(metaConfig.urls.whatsappEmbeddedSignupUrl)}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Instagram Connect URL</label>
-                <div className="flex gap-2">
-                  <Input readOnly value={metaConfig?.urls?.instagramConnectUrl || 'Set appId + redirectUri in default Meta app'} />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!metaConfig?.urls?.instagramConnectUrl}
-                    onClick={() => handleCopyText(metaConfig.urls.instagramConnectUrl)}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <Card className="p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Webhook className="w-5 h-5" />
-          <h2 className="text-xl font-semibold">Own BSP Webhook</h2>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-2">Webhook URL</label>
-            <div className="flex gap-2">
-              <Input readOnly value={bspWebhookBase} className="flex-1" />
-              <Button size="sm" variant="outline" onClick={handleCopy}>
-                {copied ? 'Copied' : <Copy className="w-4 h-4" />}
-              </Button>
-            </div>
-          </div>
-          <div className="text-xs text-foreground/60">
-            Configure your provider to send events here with header <code>x-webhook-token</code>.
-          </div>
-          <div className="text-xs text-foreground/60">
-            Optional provider selector: <code>x-bsp-provider</code> header or <code>?provider=</code> query.
-          </div>
-        </div>
-      </Card>
-
-      <Card className="p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Send className="w-5 h-5" />
-          <h2 className="text-xl font-semibold">Own BSP Test Send</h2>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-2">Phone</label>
-            <Input
-              placeholder="e.g. 9198XXXXXX85"
-              value={testPhone}
-              onChange={(e) => setTestPhone(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Message</label>
-            <Input
-              placeholder="Type test message"
-              value={testMessage}
-              onChange={(e) => setTestMessage(e.target.value)}
-            />
-          </div>
-          <Button onClick={handleTestSend} disabled={isSendingTest}>
-            {isSendingTest ? 'Queuing...' : 'Queue Test Message'}
-          </Button>
-          {testSendResult && (
-            <pre className="text-xs bg-muted p-3 rounded-lg overflow-auto max-h-56">{testSendResult}</pre>
+          {!metaConfig?.urls?.whatsappEmbeddedSignupUrl && (
+            <p className="text-sm text-amber-600 mt-4 text-center">
+              System is not fully configured for embedded signup yet. Please configure the default Meta app in the backend.
+            </p>
           )}
         </div>
       </Card>
     </div>
   );
 }
+
