@@ -77,6 +77,8 @@ function channelMeta(source: string) {
   };
 }
 
+import { getPusherClient } from '@/lib/pusher-client';
+
 export default function MessagesPage() {
   const { workspace } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
@@ -90,16 +92,17 @@ export default function MessagesPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const providerQuery = providerFilter === 'all' ? '' : `&provider=${providerFilter}`;
+  
+  // Use SWR, but increase the refresh interval heavily because we have real-time sockets!
   const { data: threadsData, isLoading: isThreadsLoading, mutate: mutateThreads } = useSWR(
     workspace
       ? `/api/messages/threads?workspaceId=${workspace.id}&q=${encodeURIComponent(searchTerm)}${providerQuery}`
       : null,
     fetcher,
     {
-      refreshInterval: 2000,
+      refreshInterval: 30000, 
       revalidateOnFocus: true,
-      refreshWhenHidden: true,
-      dedupingInterval: 0,
+      dedupingInterval: 5000,
     }
   );
 
@@ -122,13 +125,72 @@ export default function MessagesPage() {
       : null,
     fetcher,
     {
-      refreshInterval: 1500,
+      refreshInterval: 30000, 
       revalidateOnFocus: true,
-      refreshWhenHidden: true,
-      dedupingInterval: 0,
+      dedupingInterval: 5000,
     }
   );
   const threadMessages: ThreadMessage[] = threadMessagesData?.messages || [];
+
+  // Setup Pusher Real-Time Socket Connection
+  useEffect(() => {
+    if (!workspace?.id) return;
+
+    const pusherClient = getPusherClient();
+    if (!pusherClient) return;
+
+    const channelName = `workspace-${workspace.id}`;
+    const channel = pusherClient.subscribe(channelName);
+
+    channel.bind('new-message', (data: any) => {
+        // We received a new real-time message!
+        // Partially invalidate SWR or push to cache directly
+        
+        // 1. If it belongs to the active thread, update messages array locally
+        if (data.customerId === selectedCustomerId) {
+           mutateThreadMessages((currentData: any) => {
+             if (!currentData) return currentData;
+             // Ensure no duplicates
+             if ((currentData.messages || []).some((m: any) => m.id === data.id)) return currentData;
+             
+             return {
+                ...currentData,
+                messages: [...(currentData.messages || []), data],
+             };
+           }, false);
+           
+           // Auto-scroll
+           setTimeout(() => {
+               messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+           }, 100);
+        }
+
+        // 2. Continually bump the threads list so the latest thread goes to the top
+        mutateThreads((currentThreads: any) => {
+            if (!currentThreads) return currentThreads;
+            let updatedList = [...(currentThreads.threads || [])];
+            const threadIdx = updatedList.findIndex(t => t.customerId === data.customerId);
+            
+            if (threadIdx > -1) {
+                updatedList[threadIdx].lastMessage = data.content;
+                updatedList[threadIdx].lastMessageAt = data.sentAt;
+                // Move thread to top
+                const movedThread = updatedList.splice(threadIdx, 1)[0];
+                updatedList.unshift(movedThread);
+            } else {
+                // Background refresh if it's a completely new customer jumping in
+                setTimeout(() => mutateThreads(), 1000);
+            }
+            
+            return { ...currentThreads, threads: updatedList };
+        }, false);
+    });
+
+    return () => {
+        channel.unbind_all();
+        channel.unsubscribe();
+    };
+  }, [workspace?.id, selectedCustomerId, mutateThreadMessages, mutateThreads]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -208,7 +270,7 @@ export default function MessagesPage() {
         <div className="flex items-center gap-3">
           <div className="hidden items-center gap-2 rounded-2xl border bg-card px-4 py-3 text-sm text-foreground/60 lg:inline-flex">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            Live refresh every 1.5-2s
+            Real-time connection active
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

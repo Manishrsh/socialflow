@@ -82,6 +82,8 @@ export async function GET(
   }
 }
 
+import { pusherServer } from '@/lib/pusher';
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ customerId: string }> }
@@ -147,7 +149,7 @@ export async function POST(
       );
     }
 
-    await sql`
+    const insertedRows = await sql`
       INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url)
       VALUES (
         ${randomUUID()},
@@ -158,7 +160,26 @@ export async function POST(
         ${messageText},
         ${null}
       )
+      RETURNING id, content, media_url, direction, type, sent_at, read_at
     `;
+
+    const newMsg = insertedRows[0];
+    
+    // Trigger real-time update
+    try {
+        await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
+            id: newMsg.id,
+            customerId: customerId,
+            content: newMsg.content || '',
+            mediaUrl: newMsg.media_url || null,
+            direction: newMsg.direction || 'outbound',
+            type: newMsg.type || 'text',
+            sentAt: newMsg.sent_at,
+            readAt: newMsg.read_at || null,
+        });
+    } catch (e) {
+        console.error('Failed to trigger Pusher event:', e);
+    }
 
     return NextResponse.json({
       success: true,

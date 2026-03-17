@@ -1,3 +1,4 @@
+import { pusherServer } from '@/lib/pusher';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, ensureCoreSchema } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
@@ -193,18 +194,40 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (customerId && (normalized.message || normalized.mediaUrl)) {
       messageId = uuidv4();
+      
+      const messageType = normalized.mediaUrl ? 'media' : 'text';
+      const content = normalized.message || null;
+      const mediaUrl = normalized.mediaUrl || null;
+      const sent_at = new Date().toISOString(); 
+
       await sql`
-        INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url)
+        INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url, sent_at)
         VALUES (
           ${messageId},
           ${workspaceId},
           ${customerId},
           ${'inbound'},
-          ${normalized.mediaUrl ? 'media' : 'text'},
-          ${normalized.message || null},
-          ${normalized.mediaUrl || null}
+          ${messageType},
+          ${content},
+          ${mediaUrl},
+          ${sent_at}
         )
       `;
+
+      try {
+        await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
+          id: messageId,
+          customerId,
+          content: content || '',
+          mediaUrl: mediaUrl,
+          direction: 'inbound',
+          type: messageType,
+          sentAt: sent_at,
+          readAt: null,
+        });
+      } catch (err) {
+        console.error('Failed to trigger Pusher event for inbound webhook:', err);
+      }
 
       try {
         if (isPushConfigured()) {

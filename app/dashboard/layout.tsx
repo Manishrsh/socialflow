@@ -7,12 +7,12 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { PwaInstallButton } from '@/components/pwa-install-button';
 import { MOBILE_TOPBAR_HIDDEN_KEY } from '@/lib/device-preferences';
-import { 
-  BarChart3, 
+import {
+  BarChart3,
   Bell,
-  MessageSquare, 
-  Users, 
-  Zap, 
+  MessageSquare,
+  Users,
+  Zap,
   Image as ImageIcon,
   Settings,
   LogOut,
@@ -23,6 +23,7 @@ import {
   Webhook,
   PanelLeftClose,
   PanelLeftOpen,
+  FileText,
 } from 'lucide-react';
 
 interface NavItem {
@@ -168,6 +169,12 @@ export default function DashboardLayout({
       icon: <MessageSquare className="w-5 h-5" />,
     },
     {
+      name: 'Templates',
+      href: '/dashboard/templates',
+      icon: <FileText className="w-5 h-5" />,
+      badge: 'New'
+    },
+    {
       name: 'Outbox Monitor',
       href: '/dashboard/outbox',
       icon: <Send className="w-5 h-5" />,
@@ -300,11 +307,9 @@ export default function DashboardLayout({
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-full bg-sidebar border-r border-sidebar-border transform transition-all duration-300 z-50 md:relative md:translate-x-0 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${
-          sidebarCollapsed ? 'w-64 md:w-0 md:border-r-0 md:overflow-hidden' : 'w-64 md:w-64'
-        }`}
+        className={`fixed left-0 top-0 h-full bg-sidebar border-r border-sidebar-border transform transition-all duration-300 z-50 md:relative md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } ${sidebarCollapsed ? 'w-64 md:w-0 md:border-r-0 md:overflow-hidden' : 'w-64 md:w-64'
+          }`}
       >
         <div className="flex flex-col h-full">
           {/* Logo/Brand */}
@@ -338,11 +343,10 @@ export default function DashboardLayout({
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
+                  className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isActive
                       ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                       : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                  }`}
+                    }`}
                   onClick={() => setSidebarOpen(false)}
                 >
                   <div className="flex items-center gap-3">
