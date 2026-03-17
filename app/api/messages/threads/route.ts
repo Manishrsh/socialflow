@@ -62,13 +62,15 @@ export async function GET(request: NextRequest) {
     SELECT id, content, media_url, direction, type, sent_at
     FROM messages
     WHERE customer_id = c.id
-    AND workspace_id = ${workspaceId}
-    ORDER BY sent_at DESC, id DESC   -- 🔥 FIX HERE
+      AND workspace_id = ${workspaceId}
+    ORDER BY sent_at DESC, id DESC   -- ✅ ensures latest message
     LIMIT 1
   ) m ON true
   WHERE c.workspace_id = ${workspaceId}
-  ORDER BY m.sent_at DESC NULLS LAST, c.created_at DESC
-  LIMIT 200
+  ORDER BY 
+    m.sent_at DESC NULLS LAST,       -- ✅ active chats first
+    c.created_at DESC                -- ✅ fallback if no messages
+  LIMIT 200                          -- ✅ latest 200 customers
 `;
 
     let threads = rows.map((r: any) => {
