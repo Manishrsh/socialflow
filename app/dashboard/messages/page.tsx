@@ -100,9 +100,9 @@ export default function MessagesPage() {
       : null,
     fetcher,
     {
-      refreshInterval: 30000, 
-      revalidateOnFocus: true,
-      dedupingInterval: 5000,
+      refreshInterval: 30000,
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
     }
   );
 
@@ -125,9 +125,9 @@ export default function MessagesPage() {
       : null,
     fetcher,
     {
-      refreshInterval: 30000, 
-      revalidateOnFocus: true,
-      dedupingInterval: 5000,
+      refreshInterval: 30000,
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
     }
   );
   const threadMessages: ThreadMessage[] = threadMessagesData?.messages || [];
@@ -220,7 +220,7 @@ export default function MessagesPage() {
       }
 
       setReplyText('');
-      await Promise.all([mutateThreadMessages(), mutateThreads()]);
+      // Pusher will deliver the new message via the real-time subscription — no refetch needed
     } catch (error: any) {
       alert(error?.message || 'Failed to send reply');
     } finally {
