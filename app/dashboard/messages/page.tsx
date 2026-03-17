@@ -130,7 +130,21 @@ export default function MessagesPage() {
       dedupingInterval: 2000,
     }
   );
-  const threadMessages: ThreadMessage[] = threadMessagesData?.messages || [];
+  
+  const threadMessages: ThreadMessage[] = useMemo(() => {
+  const msgs = threadMessagesData?.messages || [];
+
+  // 🔥 Sort properly (safety fix)
+  const sorted = [...msgs].sort((a, b) => {
+    const timeDiff = new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
+    if (timeDiff !== 0) return timeDiff;
+
+    // fallback for same timestamp
+    return a.id.localeCompare(b.id);
+  });
+
+  return sorted;
+}, [threadMessagesData]);
 
   const selectedCustomerIdRef = useRef<string | null>(null);
   useEffect(() => {

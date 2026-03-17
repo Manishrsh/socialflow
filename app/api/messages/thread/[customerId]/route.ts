@@ -55,12 +55,13 @@ export async function GET(
     }
 
     const rows = await sql`
-      SELECT id, content, media_url, direction, type, sent_at, read_at
-      FROM messages
-      WHERE workspace_id = ${workspaceId} AND customer_id = ${customerId}
-      ORDER BY sent_at ASC
-      LIMIT 100
-    `;
+  SELECT id, content, media_url, direction, type, sent_at, read_at
+  FROM messages
+  WHERE workspace_id = ${workspaceId}
+    AND customer_id = ${customerId}
+  ORDER BY sent_at DESC, id DESC   -- 🔥 latest first
+  LIMIT 100
+`;
 
     const messages = rows.map((r: any) => ({
       id: r.id,
