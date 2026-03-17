@@ -205,13 +205,14 @@ export default function MessagesPage() {
     if (!workspace?.id || !selectedCustomerId || !replyText.trim()) return;
 
     setIsSendingReply(true);
+    const sentText = replyText.trim();
     try {
       const response = await fetch(
         `/api/messages/thread/${selectedCustomerId}?workspaceId=${workspace.id}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: replyText.trim() }),
+          body: JSON.stringify({ message: sentText }),
         }
       );
       const data = await response.json();
@@ -220,7 +221,32 @@ export default function MessagesPage() {
       }
 
       setReplyText('');
-      // Pusher will deliver the new message via the real-time subscription — no refetch needed
+      // Pusher doesn't echo back to the sender, so optimistically add the message locally
+      mutateThreadMessages((currentData: any) => {
+        if (!currentData) return currentData;
+        const optimistic: ThreadMessage = {
+          id: data?.outboxId || `temp-${Date.now()}`,
+          content: sentText,
+          mediaUrl: null,
+          direction: 'outbound',
+          type: 'text',
+          sentAt: new Date().toISOString(),
+          readAt: null,
+        };
+        if ((currentData.messages || []).some((m: any) => m.id === optimistic.id)) return currentData;
+        return { ...currentData, messages: [...(currentData.messages || []), optimistic] };
+      }, false);
+      mutateThreads((currentThreads: any) => {
+        if (!currentThreads) return currentThreads;
+        const updatedList = [...(currentThreads.threads || [])];
+        const idx = updatedList.findIndex((t) => t.customerId === selectedCustomerId);
+        if (idx > -1) {
+          updatedList[idx] = { ...updatedList[idx], lastMessage: sentText, lastMessageAt: new Date().toISOString() };
+          const [moved] = updatedList.splice(idx, 1);
+          updatedList.unshift(moved);
+        }
+        return { ...currentThreads, threads: updatedList };
+      }, false);
     } catch (error: any) {
       alert(error?.message || 'Failed to send reply');
     } finally {
