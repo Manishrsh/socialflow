@@ -59,7 +59,7 @@ export async function GET(
       FROM messages
       WHERE workspace_id = ${workspaceId} AND customer_id = ${customerId}
       ORDER BY sent_at ASC
-      LIMIT 500
+      LIMIT 100
     `;
 
     const messages = rows.map((r: any) => ({
@@ -164,21 +164,21 @@ export async function POST(
     `;
 
     const newMsg = insertedRows[0];
-    
+
     // Trigger real-time update
     try {
-        await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
-            id: newMsg.id,
-            customerId: customerId,
-            content: newMsg.content || '',
-            mediaUrl: newMsg.media_url || null,
-            direction: newMsg.direction || 'outbound',
-            type: newMsg.type || 'text',
-            sentAt: newMsg.sent_at,
-            readAt: newMsg.read_at || null,
-        });
+      await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
+        id: newMsg.id,
+        customerId: customerId,
+        content: newMsg.content || '',
+        mediaUrl: newMsg.media_url || null,
+        direction: newMsg.direction || 'outbound',
+        type: newMsg.type || 'text',
+        sentAt: newMsg.sent_at,
+        readAt: newMsg.read_at || null,
+      });
     } catch (e) {
-        console.error('Failed to trigger Pusher event:', e);
+      console.error('Failed to trigger Pusher event:', e);
     }
 
     return NextResponse.json({

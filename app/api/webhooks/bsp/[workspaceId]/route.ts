@@ -141,10 +141,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             ${0},
             ${'Duplicate webhook ignored'},
             ${JSON.stringify({
-              provider: normalized.provider,
-              externalMessageId: normalized.externalMessageId,
-              eventType: normalized.eventType,
-            })}
+          provider: normalized.provider,
+          externalMessageId: normalized.externalMessageId,
+          eventType: normalized.eventType,
+        })}
           FROM workflows w
           WHERE w.workspace_id = ${workspaceId} AND w.is_active = true
         `;
@@ -181,9 +181,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${workspaceId},
           ${String(normalized.phone)},
           ${JSON.stringify({
-            provider: normalized.provider,
-            externalMessageId: normalized.externalMessageId || null,
-          })}
+        provider: normalized.provider,
+        externalMessageId: normalized.externalMessageId || null,
+      })}
         )
         ON CONFLICT (workspace_id, phone)
         DO UPDATE SET updated_at = CURRENT_TIMESTAMP
@@ -194,11 +194,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (customerId && (normalized.message || normalized.mediaUrl)) {
       messageId = uuidv4();
-      
+
       const messageType = normalized.mediaUrl ? 'media' : 'text';
       const content = normalized.message || null;
       const mediaUrl = normalized.mediaUrl || null;
-      const sent_at = new Date().toISOString(); 
+      const sent_at = new Date().toISOString();
 
       await sql`
         INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url, sent_at)

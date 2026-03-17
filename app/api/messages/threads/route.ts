@@ -46,29 +46,30 @@ export async function GET(request: NextRequest) {
     }
 
     const rows = await sql`
-      SELECT
-        c.id AS customer_id,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
-        c.metadata AS customer_metadata,
-        m.id AS message_id,
-        m.content,
-        m.media_url,
-        m.direction,
-        m.type,
-        m.sent_at
-      FROM customers c
-      LEFT JOIN LATERAL (
-        SELECT id, content, media_url, direction, type, sent_at
-        FROM messages
-        WHERE customer_id = c.id
-        ORDER BY sent_at DESC
-        LIMIT 1
-      ) m ON true
-      WHERE c.workspace_id = ${workspaceId}
-      ORDER BY m.sent_at DESC NULLS LAST, c.created_at DESC
-      LIMIT 200
-    `;
+  SELECT
+    c.id AS customer_id,
+    c.name AS customer_name,
+    c.phone AS customer_phone,
+    c.metadata AS customer_metadata,
+    m.id AS message_id,
+    m.content,
+    m.media_url,
+    m.direction,
+    m.type,
+    m.sent_at
+  FROM customers c
+  LEFT JOIN LATERAL (
+    SELECT id, content, media_url, direction, type, sent_at
+    FROM messages
+    WHERE customer_id = c.id
+    AND workspace_id = ${workspaceId}
+    ORDER BY sent_at DESC, id DESC   -- 🔥 FIX HERE
+    LIMIT 1
+  ) m ON true
+  WHERE c.workspace_id = ${workspaceId}
+  ORDER BY m.sent_at DESC NULLS LAST, c.created_at DESC
+  LIMIT 200
+`;
 
     let threads = rows.map((r: any) => {
       const metadata = parseMetadata(r.customer_metadata);
