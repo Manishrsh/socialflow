@@ -9,7 +9,7 @@ import {
   queueOwnBspTemplateMessage,
   upsertOwnBspContact,
 } from '@/lib/own-bsp-service';
-
+import { pusherServer } from '@/lib/pusher';
 interface RouteParams {
   params: Promise<{
     id: string;
@@ -157,6 +157,40 @@ function normalizeKeywords(data: Record<string, any> | undefined): string[] {
 
   const singleKeyword = String(data?.keyword || '').trim().toLowerCase();
   return singleKeyword ? [singleKeyword] : [];
+}
+
+function buildOutboundPreview(
+  data: Record<string, any>,
+  variables: Record<string, any> | undefined,
+  messageType: string
+): string | null {
+  const parts: string[] = [];
+  const header = String(data.header || '').trim();
+  const message = String(data.message || variables?.message || '').trim();
+  const footer = String(data.footer || '').trim();
+
+  if (header) parts.push(header);
+  if (message) parts.push(message);
+  if (footer) parts.push(footer);
+
+  if (messageType === 'interactive_button') {
+    const buttons = normalizeNodeButtons(data);
+    if (buttons.length > 0) {
+      parts.push(buttons.map((button) => button.title).join('\n'));
+    }
+  }
+
+  if (messageType === 'interactive_list') {
+    const rows = toArray(data.listRowsJson)
+      .map((row: any) => String(row?.title || '').trim())
+      .filter(Boolean);
+    if (rows.length > 0) {
+      parts.push(rows.join('\n'));
+    }
+  }
+
+  const preview = parts.join('\n\n').trim();
+  return preview || null;
 }
 
 function getIncomingText(variables: Record<string, any> | undefined): string {
@@ -574,7 +608,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const customerId = customerRows?.[0]?.id;
         if (!customerId) return;
 
-        await sql`
+        const insertedRows = await sql`
           INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url)
           VALUES (
             ${randomUUID()},
@@ -585,7 +619,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             ${content},
             ${mediaUrl}
           )
+          RETURNING id, content, media_url, direction, type, sent_at, read_at
         `;
+
+        const newMsg = insertedRows?.[0];
+        if (!newMsg) return;
+
+        try {
+          await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
+            id: newMsg.id,
+            customerId,
+            phone: String(phone),
+            name: null,
+            source: 'whatsapp',
+            content: newMsg.content || '',
+            mediaUrl: newMsg.media_url || null,
+            direction: newMsg.direction || 'outbound',
+            type: newMsg.type || messageType,
+            sentAt: newMsg.sent_at,
+            readAt: newMsg.read_at || null,
+          });
+        } catch (error) {
+          console.error('Failed to trigger workflow message realtime event:', error);
+        }
       };
 
       if (type === 'actionSendMessage') {
@@ -620,7 +676,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             response: res,
           });
           await upsertCustomerAndLogOutbound(
-            data.message || variables?.message || null,
+            buildOutboundPreview(data, variables || {}, 'template'),
             null,
             'template'
           );
@@ -694,7 +750,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             response: res,
           });
           await upsertCustomerAndLogOutbound(
-            data.message || variables?.message || null,
+            buildOutboundPreview(data, variables || {}, finalMessageType),
             null,
             finalMessageType
           );
@@ -881,3 +937,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
   }
 }
+
+
+
+
+
