@@ -54,7 +54,14 @@ interface RealtimeMessagePayload extends ThreadMessage {
 
 type LocalMessagesByCustomer = Record<string, ThreadMessage[]>;
 
-const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then((res) => res.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url, { cache: 'no-store' });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || 'Request failed');
+  }
+  return data;
+};
 
 function formatThreadTime(value: string | null): string {
   if (!value) return '';
@@ -201,7 +208,12 @@ export default function MessagesPage() {
     [threads, selectedCustomerId]
   );
 
-  const { data: threadMessagesData, isLoading: isMessagesLoading, mutate: mutateThreadMessages } = useSWR(
+  const {
+    data: threadMessagesData,
+    error: threadMessagesError,
+    isLoading: isMessagesLoading,
+    mutate: mutateThreadMessages,
+  } = useSWR(
     workspace && selectedCustomerId && selectedThread?.phone
       ? `/api/messages/thread/${selectedCustomerId}?workspaceId=${workspace.id}&phone=${encodeURIComponent(selectedThread.phone)}`
       : null,
@@ -212,6 +224,11 @@ export default function MessagesPage() {
       dedupingInterval: 2000,
     }
   );
+
+  useEffect(() => {
+    if (!selectedCustomerId || !selectedThread?.phone) return;
+    mutateThreadMessages();
+  }, [mutateThreadMessages, selectedCustomerId, selectedThread?.phone]);
   
   const threadMessages: ThreadMessage[] = useMemo(() => {
     const serverMessages = Array.isArray(threadMessagesData?.messages) ? threadMessagesData.messages : [];
@@ -601,6 +618,10 @@ export default function MessagesPage() {
               >
                 {isMessagesLoading ? (
                   <div className="text-sm text-foreground/60">Loading messages...</div>
+                ) : threadMessagesError ? (
+                  <div className="text-sm text-red-600">
+                    {threadMessagesError.message || 'Failed to load messages.'}
+                  </div>
                 ) : threadMessages.length === 0 ? (
                   <div className="text-sm text-foreground/60">No messages in this thread.</div>
                 ) : (
