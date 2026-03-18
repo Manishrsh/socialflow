@@ -109,8 +109,9 @@ export async function GET(request: NextRequest) {
     ];
 
     const filename = customerId ? `messages-${customerId}.csv` : `messages-${workspaceId}.csv`;
+    const utf8Bom = '\uFEFF';
 
-    return new NextResponse(lines.join('\n'), {
+    return new NextResponse(`${utf8Bom}${lines.join('\r\n')}`, {
       status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
