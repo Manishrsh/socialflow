@@ -536,6 +536,58 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         throw new Error(`Main menu prompt failed on node ${node.id}: ${promptResult.error || 'Unknown error'}`);
       }
 
+      const promptCustomerRows = await sql`
+        INSERT INTO customers (id, workspace_id, phone, metadata)
+        VALUES (
+          ${randomUUID()},
+          ${workspaceId},
+          ${String(phone)},
+          ${JSON.stringify({ provider: 'own_bsp' })}
+        )
+        ON CONFLICT (workspace_id, phone)
+        DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+      `;
+      const promptCustomerId = promptCustomerRows?.[0]?.id;
+
+      if (promptCustomerId) {
+        const promptPreview = [promptText, buttonTitle].filter(Boolean).join('\n\n');
+        const promptMessages = await sql`
+          INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url)
+          VALUES (
+            ${randomUUID()},
+            ${workspaceId},
+            ${promptCustomerId},
+            ${'outbound'},
+            ${'interactive_button'},
+            ${promptPreview},
+            ${null}
+          )
+          RETURNING id, content, media_url, direction, type, sent_at, read_at
+        `;
+
+        const promptMessage = promptMessages?.[0];
+        if (promptMessage) {
+          try {
+            await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
+              id: promptMessage.id,
+              customerId: promptCustomerId,
+              phone: String(phone),
+              name: null,
+              source: 'whatsapp',
+              content: promptMessage.content || '',
+              mediaUrl: promptMessage.media_url || null,
+              direction: promptMessage.direction || 'outbound',
+              type: promptMessage.type || 'interactive_button',
+              sentAt: promptMessage.sent_at,
+              readAt: promptMessage.read_at || null,
+            });
+          } catch (error) {
+            console.error('Failed to trigger main menu prompt realtime event:', error);
+          }
+        }
+      }
+
       await sql`
         DELETE FROM workflow_wait_states
         WHERE workspace_id = ${workspaceId}
@@ -937,6 +989,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
   }
 }
+
 
 
 
