@@ -307,6 +307,31 @@ export async function ensureCoreSchema(): Promise<void> {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS appointment_bookings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+        phone VARCHAR(30),
+        flow_token VARCHAR(255),
+        flow_id VARCHAR(255),
+        booking_date VARCHAR(100),
+        booking_time VARCHAR(100),
+        service VARCHAR(255),
+        assignee VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'booked',
+        notes TEXT,
+        details JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_appointment_bookings_workspace_phone
+      ON appointment_bookings(workspace_id, phone, created_at DESC)
+    `;
   })();
 
   return coreSchemaInitPromise;

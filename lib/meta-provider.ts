@@ -29,6 +29,26 @@ function clamp(value: any, max: number): string {
   return nonEmpty(value).slice(0, max);
 }
 
+function parseFlowData(value: any): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value;
+  }
+  const text = nonEmpty(value);
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function randomFlowToken(flowId: string): string {
+  const seed = flowId || 'flow';
+  return `${seed}_${Date.now()}`;
+}
+
 async function loadWorkspaceMetaCredentials(workspaceId: string): Promise<Partial<MetaCredentials>> {
   await ensureCoreSchema();
   const rows = await sql`
@@ -124,6 +144,12 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
       const catalogId = nonEmpty(input.payload?.catalogId);
       const productRetailerId = nonEmpty(input.payload?.productRetailerId);
       const markReadMessageId = nonEmpty(input.payload?.messageIdToRead || input.payload?.messageId);
+      const flowId = nonEmpty(input.payload?.flowId);
+      const flowCta = clamp(input.payload?.flowCta || 'Open Form', 30);
+      const flowToken = nonEmpty(input.payload?.flowToken || randomFlowToken(flowId));
+      const flowAction = nonEmpty(input.payload?.flowAction || 'navigate').toLowerCase();
+      const flowScreen = nonEmpty(input.payload?.flowScreen);
+      const flowData = parseFlowData(input.payload?.flowDataJson);
 
       let body: any = {
         messaging_product: 'whatsapp',
@@ -135,6 +161,42 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
           messaging_product: 'whatsapp',
           status: 'read',
           message_id: markReadMessageId,
+        };
+      } else if (messageType === 'flow') {
+        if (!flowId) {
+          return { success: false, error: 'flowId is required for flow messages' };
+        }
+        body = {
+          ...body,
+          type: 'interactive',
+          interactive: {
+            type: 'flow',
+            body: { text: clamp(text || 'Open the form to continue', 1024) },
+            ...(nonEmpty(input.payload?.header)
+              ? { header: { type: 'text', text: clamp(input.payload?.header, 60) } }
+              : {}),
+            ...(nonEmpty(input.payload?.footer)
+              ? { footer: { text: clamp(input.payload?.footer, 60) } }
+              : {}),
+            action: {
+              name: 'flow',
+              parameters: {
+                flow_message_version: '3',
+                flow_id: flowId,
+                flow_cta: flowCta,
+                flow_token: flowToken,
+                flow_action: flowAction === 'data_exchange' ? 'data_exchange' : 'navigate',
+                ...(flowScreen || Object.keys(flowData).length > 0
+                  ? {
+                      flow_action_payload: {
+                        ...(flowScreen ? { screen: flowScreen } : {}),
+                        data: flowData,
+                      },
+                    }
+                  : {}),
+              },
+            },
+          },
         };
       } else if (messageType === 'template' && templateName) {
         body = {

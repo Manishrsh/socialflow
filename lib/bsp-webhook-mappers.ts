@@ -5,6 +5,10 @@ export interface NormalizedInboundEvent {
   message?: string;
   mediaUrl?: string;
   externalMessageId?: string;
+  buttonReplyId?: string;
+  buttonReplyTitle?: string;
+  flowToken?: string;
+  flowReply?: Record<string, any>;
   raw: any;
 }
 
@@ -85,6 +89,26 @@ function map360dialog(body: any): Partial<NormalizedInboundEvent> {
     msg?.interactive?.button_reply?.title,
     msg?.interactive?.list_reply?.title
   );
+  const flowReplyRaw = msg?.interactive?.nfm_reply?.response_json;
+  const flowReply =
+    flowReplyRaw && typeof flowReplyRaw === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(flowReplyRaw);
+          } catch {
+            return { raw: flowReplyRaw };
+          }
+        })()
+      : (flowReplyRaw && typeof flowReplyRaw === 'object' ? flowReplyRaw : undefined);
+  const flowReplySummary = flowReply
+    ? pickFirst(
+        flowReply?.flow_response_message,
+        flowReply?.summary,
+        flowReply?.appointment_summary,
+        flowReply?.service,
+        'Submitted WhatsApp form'
+      )
+    : undefined;
   const mediaUrl = pickFirst(
     msg?.image?.link,
     msg?.video?.link,
@@ -96,9 +120,13 @@ function map360dialog(body: any): Partial<NormalizedInboundEvent> {
   return {
     eventType: String(pickFirst(msg?.type, status?.status, body?.event, 'message')),
     phone,
-    message: message ? String(message) : undefined,
+    message: message ? String(message) : flowReplySummary ? String(flowReplySummary) : undefined,
     mediaUrl: mediaUrl ? String(mediaUrl) : undefined,
     externalMessageId: pickFirst(msg?.id, status?.id, body?.messageId),
+    buttonReplyId: pickFirst(msg?.interactive?.button_reply?.id, msg?.interactive?.list_reply?.id),
+    buttonReplyTitle: pickFirst(msg?.interactive?.button_reply?.title, msg?.interactive?.list_reply?.title),
+    flowToken: pickFirst(msg?.interactive?.nfm_reply?.body, flowReply?.flow_token, flowReply?.flowToken),
+    flowReply: flowReply ? flowReply : undefined,
   };
 }
 
@@ -193,6 +221,13 @@ export function mapInboundEvent(providerInput: string, body: any): NormalizedInb
     message: mapped.message ? String(mapped.message) : undefined,
     mediaUrl: mapped.mediaUrl ? String(mapped.mediaUrl) : undefined,
     externalMessageId: mapped.externalMessageId ? String(mapped.externalMessageId) : undefined,
+    buttonReplyId: mapped.buttonReplyId ? String(mapped.buttonReplyId) : undefined,
+    buttonReplyTitle: mapped.buttonReplyTitle ? String(mapped.buttonReplyTitle) : undefined,
+    flowToken: mapped.flowToken ? String(mapped.flowToken) : undefined,
+    flowReply:
+      mapped.flowReply && typeof mapped.flowReply === 'object' && !Array.isArray(mapped.flowReply)
+        ? mapped.flowReply
+        : undefined,
     raw: body,
   };
 }

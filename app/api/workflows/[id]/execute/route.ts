@@ -193,6 +193,17 @@ function buildOutboundPreview(
   return preview || null;
 }
 
+function buildFlowPreview(data: Record<string, any>): string | null {
+  const parts = [
+    String(data.header || '').trim(),
+    String(data.message || '').trim(),
+    String(data.footer || '').trim(),
+    String(data.flowCta || '').trim(),
+  ].filter(Boolean);
+  const preview = parts.join('\n\n').trim();
+  return preview || 'WhatsApp Flow';
+}
+
 function getIncomingText(variables: Record<string, any> | undefined): string {
   return String(
     variables?.message ||
@@ -330,11 +341,12 @@ function resolveExecutionPath(
   let currentReplyId = String(variables?.buttonReplyId || variables?.buttonId || '').trim();
   let currentReplyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim();
   const hasReply = !!currentReplyId || !!currentReplyTitle;
+  const hasFlowResponse = !!variables?.flowResponse || !!variables?.flowToken || !!variables?.appointmentBookingId;
 
   const matchedStartNode = findMatchingStartNode(starters, variables);
   const fallbackStartNode = starters.length === 0 ? nodes[0] : null;
   const startNode =
-    (resumeNodeId && hasReply && nodeById.get(resumeNodeId)) || matchedStartNode || fallbackStartNode;
+    (resumeNodeId && (hasReply || hasFlowResponse) && nodeById.get(resumeNodeId)) || matchedStartNode || fallbackStartNode;
   if (!startNode) return [];
 
   const path: FlowNode[] = [];
@@ -408,7 +420,6 @@ function resolveExecutionPath(
         }
 
         if (target && nodeById.has(target)) {
-          // Resume mode: skip re-executing the interactive node and jump directly.
           if (resumeNodeId && node.id === resumeNodeId) {
             currentId = target;
             continue;
@@ -420,10 +431,21 @@ function resolveExecutionPath(
           continue;
         }
 
-        // This node is interactive, but the current reply does not belong to it.
-        // Do not fall through to a default outgoing edge; wait for this node's own click.
         path.push(node);
         break;
+      }
+    }
+
+    if (node.type === 'actionSendWhatsAppFlow') {
+      const next = outgoing.get(currentId) || [];
+      if (!hasFlowResponse) {
+        path.push(node);
+        break;
+      }
+
+      if (resumeNodeId && node.id === resumeNodeId) {
+        currentId = next[0] || null;
+        continue;
       }
     }
 
@@ -839,6 +861,70 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
       }
 
+      if (type === 'actionSendWhatsAppFlow') {
+        const flowId = String(data.flowId || '').trim();
+        if (!flowId) {
+          throw new Error(`WhatsApp Flow failed on node ${node.id}: Flow ID is required.`);
+        }
+
+        const flowAction = String(data.flowAction || 'navigate').trim().toLowerCase();
+        const res = await queueOwnBspMessage({
+          workspaceId,
+          channel: 'whatsapp',
+          recipient: String(phone),
+          message: data.message || '',
+          messageType: 'flow',
+          payload: {
+            header: data.header || null,
+            footer: data.footer || null,
+            flowId,
+            flowCta: data.flowCta || 'Open Form',
+            flowToken: data.flowToken || `flow_${id}_${node.id}_${String(phone)}`,
+            flowAction: flowAction === 'data_exchange' ? 'data_exchange' : 'navigate',
+            flowScreen: data.flowScreen || null,
+            flowDataJson: data.flowDataJson || null,
+            bookAsAppointment: String(data.bookAsAppointment || 'yes').trim().toLowerCase(),
+            source: 'workflow',
+            workflowId: id,
+            nodeId: node.id,
+          },
+        });
+
+        if (!res.success) {
+          throw new Error(`WhatsApp Flow failed on node ${node.id}: ${res.error || 'Unknown error'}`);
+        }
+
+        log.push({
+          nodeId: node.id,
+          type,
+          status: 'queued_flow',
+          outboxId: res.outboxId || null,
+          response: res,
+        });
+
+        await upsertCustomerAndLogOutbound(
+          buildFlowPreview(data),
+          null,
+          'flow'
+        );
+
+        await sql`
+          DELETE FROM workflow_wait_states
+          WHERE workspace_id = ${workspaceId}
+            AND workflow_id = ${id}
+            AND phone = ${String(phone)}
+        `;
+        await sql`
+          INSERT INTO workflow_wait_states (workspace_id, workflow_id, node_id, phone, expires_at)
+          VALUES (
+            ${workspaceId},
+            ${id},
+            ${node.id},
+            ${String(phone)},
+            CURRENT_TIMESTAMP + INTERVAL '2 days'
+          )
+        `;
+      }
       if (type === 'actionSendMedia') {
         const mediaItems = normalizeMediaItems(data, variables || {});
         if (mediaItems.length === 0) {
@@ -912,7 +998,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const missingRouteDetails = {
         foundNodeTypes: allNodeTypes,
         foundActionNodeTypes: actionNodeTypes,
-        supportedActionNodeTypes: ['actionSendMessage', 'actionSendMedia', 'actionSaveContact'],
+        supportedActionNodeTypes: ['actionSendMessage', 'actionSendWhatsAppFlow', 'actionSendMedia', 'actionSaveContact'],
         ...(replyId || replyTitle
           ? {
               clickedOptionId: replyId || null,
@@ -989,9 +1075,4 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
   }
 }
-
-
-
-
-
 
