@@ -43,7 +43,7 @@ export default function WhatsAppFlowsPage() {
         <div>
           <h1 className="text-3xl font-bold">WhatsApp Flows</h1>
           <p className="mt-2 text-foreground/60">
-            Build and manage real appointment and intake flow definitions from the dashboard.
+            Build and manage real appointment and intake flow definitions from the dashboard, then sync them with Meta.
           </p>
         </div>
         <Button asChild>

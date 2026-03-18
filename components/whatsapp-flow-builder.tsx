@@ -232,10 +232,13 @@ export function WhatsAppFlowBuilder({ workspaceId, initialFlow }: Props) {
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium">Meta Flow ID</label>
               <Input
-                placeholder="Optional now. Add the real Meta Flow ID after publishing in WhatsApp Manager."
+                placeholder="Created automatically in Meta when you save this flow."
                 value={form.metaFlowId}
                 onChange={(e) => updateField('metaFlowId', e.target.value)}
               />
+              <p className="mt-2 text-xs text-foreground/50">
+                Saving creates a real draft Flow in your Meta WhatsApp Business account and stores its ID here.
+              </p>
             </div>
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium">Intro Text</label>

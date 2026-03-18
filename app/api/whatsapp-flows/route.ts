@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { v4 as uuidv4 } from 'uuid';
 import { ensureCoreSchema, sql } from '@/lib/db';
 import { verifySession } from '@/lib/auth';
+import { createMetaWhatsAppFlow } from '@/lib/meta-flows';
 
 function normalizeConfig(config: any): Record<string, any> {
   if (config && typeof config === 'object' && !Array.isArray(config)) {
@@ -77,7 +78,6 @@ export async function POST(request: NextRequest) {
     const description = String(body?.description || '').trim();
     const flowType = String(body?.flowType || 'appointment').trim().toLowerCase();
     const ctaLabel = String(body?.ctaLabel || 'Book Now').trim();
-    const metaFlowId = String(body?.metaFlowId || '').trim();
     const isActive = body?.isActive === undefined ? true : Boolean(body.isActive);
     const config = normalizeConfig(body?.config);
 
@@ -94,6 +94,21 @@ export async function POST(request: NextRequest) {
     if (!workspace || workspace.length === 0) {
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
     }
+
+    const metaFlow = await createMetaWhatsAppFlow({
+      workspaceId,
+      name,
+      flowType,
+    });
+
+    const storedConfig = {
+      ...config,
+      metaSync: {
+        status: 'draft_created',
+        syncedAt: new Date().toISOString(),
+        message: 'Draft Flow created in Meta automatically.',
+      },
+    };
 
     const flowId = uuidv4();
     await sql`
@@ -115,13 +130,20 @@ export async function POST(request: NextRequest) {
         ${description || null},
         ${flowType || 'appointment'},
         ${ctaLabel || 'Book Now'},
-        ${metaFlowId || null},
+        ${metaFlow.id},
         ${isActive},
-        ${JSON.stringify(config)}
+        ${JSON.stringify(storedConfig)}
       )
     `;
 
-    return NextResponse.json({ flowId, message: 'WhatsApp flow created successfully' }, { status: 201 });
+    return NextResponse.json(
+      {
+        flowId,
+        metaFlowId: metaFlow.id,
+        message: 'WhatsApp flow created successfully',
+      },
+      { status: 201 }
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Failed to create WhatsApp flow' },

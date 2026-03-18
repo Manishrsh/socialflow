@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { ensureCoreSchema, sql } from '@/lib/db';
 import { verifySession } from '@/lib/auth';
+import { createMetaWhatsAppFlow, updateMetaWhatsAppFlowMetadata } from '@/lib/meta-flows';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -74,6 +75,54 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     const body = await request.json();
+    const rows = await sql`
+      SELECT wf.*, ws.owner_id
+      FROM whatsapp_flows wf
+      INNER JOIN workspaces ws ON wf.workspace_id = ws.id
+      WHERE wf.id = ${id}
+        AND ws.owner_id = ${userId}
+      LIMIT 1
+    `;
+
+    if (!rows || rows.length === 0) {
+      return NextResponse.json({ error: 'WhatsApp flow not found' }, { status: 404 });
+    }
+
+    const existing = rows[0];
+    const workspaceId = String(existing.workspace_id);
+    const name = String(body?.name || '').trim() || String(existing.name || '').trim();
+    const flowType = String(body?.flowType || '').trim() || String(existing.flow_type || '').trim();
+    const incomingMetaFlowId = String(body?.metaFlowId || '').trim();
+    let resolvedMetaFlowId = incomingMetaFlowId || String(existing.meta_flow_id || '').trim();
+    const existingConfig =
+      typeof existing.config === 'string'
+        ? JSON.parse(existing.config || '{}')
+        : normalizeConfig(existing.config);
+
+    if (!resolvedMetaFlowId) {
+      const metaFlow = await createMetaWhatsAppFlow({
+        workspaceId,
+        name,
+        flowType,
+      });
+      resolvedMetaFlowId = metaFlow.id;
+    } else {
+      await updateMetaWhatsAppFlowMetadata({
+        workspaceId,
+        flowId: resolvedMetaFlowId,
+        name,
+        flowType,
+      });
+    }
+
+    const mergedConfig = body?.config
+      ? { ...existingConfig, ...normalizeConfig(body.config) }
+      : existingConfig;
+    mergedConfig.metaSync = {
+      status: 'metadata_synced',
+      syncedAt: new Date().toISOString(),
+      message: 'Flow metadata synced with Meta.',
+    };
 
     await sql`
       UPDATE whatsapp_flows
@@ -82,9 +131,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         description = COALESCE(${String(body?.description || '').trim() || null}, description),
         flow_type = COALESCE(${String(body?.flowType || '').trim() || null}, flow_type),
         cta_label = COALESCE(${String(body?.ctaLabel || '').trim() || null}, cta_label),
-        meta_flow_id = COALESCE(${String(body?.metaFlowId || '').trim() || null}, meta_flow_id),
+        meta_flow_id = ${resolvedMetaFlowId || null},
         is_active = COALESCE(${body?.isActive === undefined ? null : Boolean(body.isActive)}, is_active),
-        config = COALESCE(${body?.config ? JSON.stringify(normalizeConfig(body.config)) : null}, config),
+        config = ${JSON.stringify(mergedConfig)},
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id}
         AND workspace_id IN (
@@ -92,7 +141,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         )
     `;
 
-    return NextResponse.json({ message: 'WhatsApp flow updated successfully' });
+    return NextResponse.json({
+      message: 'WhatsApp flow updated successfully',
+      metaFlowId: resolvedMetaFlowId,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Failed to update WhatsApp flow' },
