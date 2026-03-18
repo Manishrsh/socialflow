@@ -77,14 +77,14 @@ export async function GET(
         AND (
           m.customer_id = ${customerId}
           OR ${normalizedPhone || ''} = ''
-          OR regexp_replace(
+          OR replace(
             regexp_replace(
               regexp_replace(lower(COALESCE(c.phone, '')), '^whatsapp:', ''),
               '[^0-9+]',
               '',
               'g'
             ),
-            '^\+',
+            '+',
             ''
           ) = ${normalizedPhone || ''}
         )
@@ -132,7 +132,6 @@ export async function POST(
     const { customerId } = await params;
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
-    const requestedPhone = normalizePhone(searchParams.get('phone'));
     if (!workspaceId) {
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
     }
@@ -230,5 +229,3 @@ export async function POST(
     );
   }
 }
-
-
