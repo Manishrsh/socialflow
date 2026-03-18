@@ -271,10 +271,17 @@ export const ACTION_NODES = [
         required: false,
       },
       {
+        key: 'flowMode',
+        label: 'Flow Mode',
+        type: 'select',
+        options: ['draft', 'published'],
+        required: false,
+      },
+      {
         key: 'flowScreen',
         label: 'Initial Screen (Optional)',
         type: 'text',
-        placeholder: 'APPOINTMENT_BOOKING',
+        placeholder: 'WELCOME_SCREEN or BOOKING_SCREEN',
         required: false,
       },
       {

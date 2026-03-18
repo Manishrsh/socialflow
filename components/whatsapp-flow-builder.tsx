@@ -27,6 +27,7 @@ export function WhatsAppFlowBuilder({ workspaceId, initialFlow }: Props) {
   const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [form, setForm] = useState({
     name: initialFlow?.name || 'Appointment Booking Flow',
     description: initialFlow?.description || 'Collect appointment details inside WhatsApp',
@@ -170,6 +171,26 @@ export function WhatsAppFlowBuilder({ workspaceId, initialFlow }: Props) {
     }
   };
 
+  const handlePublish = async () => {
+    if (!initialFlow?.id) return;
+    setIsPublishing(true);
+    try {
+      const response = await fetch(`/api/whatsapp-flows/${initialFlow.id}/publish`, {
+        method: 'POST',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to publish flow');
+      }
+
+      router.refresh();
+    } catch (error: any) {
+      alert(error?.message || 'Failed to publish WhatsApp flow');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -189,6 +210,11 @@ export function WhatsAppFlowBuilder({ workspaceId, initialFlow }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {initialFlow?.id ? (
+            <Button type="button" variant="outline" onClick={handlePublish} disabled={isPublishing || isSaving || isDeleting}>
+              {isPublishing ? 'Publishing...' : 'Publish'}
+            </Button>
+          ) : null}
           {initialFlow?.id ? (
             <Button type="button" variant="outline" onClick={handleDelete} disabled={isDeleting || isSaving}>
               {isDeleting ? 'Deleting...' : 'Delete'}

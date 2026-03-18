@@ -881,6 +881,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             flowCta: data.flowCta || 'Open Form',
             flowToken: data.flowToken || null,
             flowAction: flowAction === 'data_exchange' ? 'data_exchange' : null,
+            flowMode: data.flowMode || null,
             flowScreen: data.flowScreen || null,
             flowDataJson: data.flowDataJson || null,
             bookAsAppointment: String(data.bookAsAppointment || 'yes').trim().toLowerCase(),

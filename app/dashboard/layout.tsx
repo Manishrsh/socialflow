@@ -230,6 +230,11 @@ export default function DashboardLayout({
       icon: <CalendarRange className="w-5 h-5" />,
     },
     {
+      name: 'Flow Responses',
+      href: '/dashboard/flow-responses',
+      icon: <MessageSquare className="w-5 h-5" />,
+    },
+    {
       name: 'Broadcasts',
       href: '/dashboard/broadcasts',
       icon: <Send className="w-5 h-5" />,

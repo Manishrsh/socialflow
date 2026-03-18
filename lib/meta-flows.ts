@@ -29,6 +29,11 @@ interface UploadMetaFlowJsonInput {
   flowJson: Record<string, any>;
 }
 
+interface PublishMetaFlowInput {
+  workspaceId: string;
+  flowId: string;
+}
+
 function nonEmpty(value: any): string {
   return String(value || '').trim();
 }
@@ -373,5 +378,24 @@ export async function uploadMetaWhatsAppFlowJson(input: UploadMetaFlowJsonInput)
 
   if (Array.isArray(data?.validation_errors) && data.validation_errors.length > 0) {
     throw new Error(extractMetaError(data, 'Meta rejected the uploaded Flow JSON.'));
+  }
+}
+
+export async function publishMetaWhatsAppFlow(input: PublishMetaFlowInput): Promise<void> {
+  const creds = await resolveMetaFlowCredentials(input.workspaceId);
+  const response = await fetch(
+    `https://graph.facebook.com/${creds.graphApiVersion}/${nonEmpty(input.flowId)}/publish`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+      },
+      cache: 'no-store',
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.success !== true) {
+    throw new Error(extractMetaError(data, 'Failed to publish WhatsApp Flow in Meta.'));
   }
 }

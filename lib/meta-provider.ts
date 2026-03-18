@@ -21,6 +21,11 @@ interface MetaCredentials {
   graphApiVersion: string;
 }
 
+interface LocalFlowDefaults {
+  mode: 'draft' | 'published';
+  initialScreen?: string;
+}
+
 function nonEmpty(value: any): string {
   return String(value || '').trim();
 }
@@ -96,6 +101,34 @@ async function resolveMetaCredentials(workspaceId: string): Promise<MetaCredenti
   };
 }
 
+async function loadLocalFlowDefaults(workspaceId: string, metaFlowId: string): Promise<LocalFlowDefaults | null> {
+  if (!workspaceId || !metaFlowId) return null;
+  await ensureCoreSchema();
+  const rows = await sql`
+    SELECT config
+    FROM whatsapp_flows
+    WHERE workspace_id = ${workspaceId}
+      AND meta_flow_id = ${metaFlowId}
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `;
+
+  const row = rows?.[0];
+  if (!row) return null;
+
+  const config =
+    typeof row.config === 'string'
+      ? JSON.parse(row.config || '{}')
+      : (row.config || {});
+  const screens = Array.isArray(config?.metaFlowJson?.screens) ? config.metaFlowJson.screens : [];
+  const initialScreen = nonEmpty(screens?.[0]?.id);
+
+  return {
+    mode: 'draft',
+    initialScreen: initialScreen || undefined,
+  };
+}
+
 function normalizeButtons(payload?: Record<string, any>): Array<{ id: string; title: string }> {
   const buttons = Array.isArray(payload?.buttons) ? payload?.buttons : [];
   return buttons
@@ -152,10 +185,14 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
       const productRetailerId = nonEmpty(input.payload?.productRetailerId);
       const markReadMessageId = nonEmpty(input.payload?.messageIdToRead || input.payload?.messageId);
       const flowId = nonEmpty(input.payload?.flowId);
-      const flowCta = clamp(input.payload?.flowCta || 'Open Form', 30);
+      const flowCta = clamp(input.payload?.flowCta || 'Open Form', 20);
       const flowToken = normalizeFlowToken(input.payload?.flowToken, flowId);
       const flowAction = nonEmpty(input.payload?.flowAction).toLowerCase();
-      const flowScreen = nonEmpty(input.payload?.flowScreen);
+      const flowMode = nonEmpty(input.payload?.flowMode).toLowerCase();
+      const localFlowDefaults = messageType === 'flow' && flowId
+        ? await loadLocalFlowDefaults(input.workspaceId, flowId)
+        : null;
+      const flowScreen = nonEmpty(input.payload?.flowScreen || localFlowDefaults?.initialScreen);
       const flowData = parseFlowData(input.payload?.flowDataJson);
 
       let body: any = {
@@ -173,7 +210,16 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
         if (!flowId) {
           return { success: false, error: 'flowId is required for flow messages' };
         }
-        const includeFlowAction = flowAction === 'data_exchange' || Boolean(flowScreen) || Object.keys(flowData).length > 0;
+        const resolvedFlowAction =
+          flowAction === 'data_exchange'
+            ? 'data_exchange'
+            : (flowScreen ? 'navigate' : '');
+        const includeFlowAction =
+          resolvedFlowAction === 'data_exchange' || resolvedFlowAction === 'navigate';
+        const resolvedFlowData =
+          Object.keys(flowData).length > 0
+            ? flowData
+            : { phone: nonEmpty(input.recipient) };
         body = {
           ...body,
           type: 'interactive',
@@ -193,12 +239,15 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
                 flow_id: flowId,
                 flow_cta: flowCta,
                 flow_token: flowToken,
+                ...((flowMode === 'published' || flowMode === 'draft')
+                  ? { mode: flowMode }
+                  : {}),
                 ...(includeFlowAction
                   ? {
-                      flow_action: flowAction === 'data_exchange' ? 'data_exchange' : 'navigate',
+                      flow_action: resolvedFlowAction,
                       flow_action_payload: {
                         ...(flowScreen ? { screen: flowScreen } : {}),
-                        data: flowData,
+                        data: resolvedFlowData,
                       },
                     }
                   : {}),
