@@ -19,6 +19,14 @@ function parseMetadata(value: any): Record<string, any> {
   return value;
 }
 
+function normalizePhone(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .replace(/^whatsapp:/i, '')
+    .replace(/[^\d+]/g, '')
+    .replace(/^\+/, '');
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ customerId: string }> }
@@ -43,8 +51,8 @@ export async function GET(
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
     }
 
-    const owned = await sql`
-      SELECT c.id
+    const ownedRows = await sql`
+      SELECT c.id, c.phone
       FROM customers c
       INNER JOIN workspaces ws ON c.workspace_id = ws.id
       WHERE c.id = ${customerId}
@@ -52,20 +60,42 @@ export async function GET(
         AND ws.owner_id = ${userId}
       LIMIT 1
     `;
-    if (!owned || owned.length === 0) {
+    if (!ownedRows || ownedRows.length === 0) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const rows = await sql`
-      SELECT id, content, media_url, direction, type, sent_at, read_at
-      FROM messages
-      WHERE workspace_id = ${workspaceId}
-        AND customer_id = ${customerId}
-      ORDER BY sent_at DESC, id DESC
-      LIMIT 100
-    `;
-
+    const normalizedPhone = normalizePhone(ownedRows[0].phone);
     const publicOrigin = getPublicOrigin(request);
+
+    const rows = normalizedPhone
+      ? await sql`
+          SELECT m.id, m.content, m.media_url, m.direction, m.type, m.sent_at, m.read_at
+          FROM messages m
+          INNER JOIN customers c ON c.id = m.customer_id
+          WHERE m.workspace_id = ${workspaceId}
+            AND c.workspace_id = ${workspaceId}
+            AND regexp_replace(
+              regexp_replace(
+                regexp_replace(lower(COALESCE(c.phone, '')), '^whatsapp:', ''),
+                '[^0-9+]',
+                '',
+                'g'
+              ),
+              '^\+',
+              ''
+            ) = ${normalizedPhone}
+          ORDER BY m.sent_at DESC, m.id DESC
+          LIMIT 150
+        `
+      : await sql`
+          SELECT id, content, media_url, direction, type, sent_at, read_at
+          FROM messages
+          WHERE workspace_id = ${workspaceId}
+            AND customer_id = ${customerId}
+          ORDER BY sent_at DESC, id DESC
+          LIMIT 150
+        `;
+
     const messages = rows.map((r: any) => ({
       id: r.id,
       content: r.content || '',
