@@ -3,7 +3,11 @@ import { cookies } from 'next/headers';
 import { v4 as uuidv4 } from 'uuid';
 import { ensureCoreSchema, sql } from '@/lib/db';
 import { verifySession } from '@/lib/auth';
-import { createMetaWhatsAppFlow } from '@/lib/meta-flows';
+import {
+  buildMetaFlowJson,
+  createMetaWhatsAppFlow,
+  uploadMetaWhatsAppFlowJson,
+} from '@/lib/meta-flows';
 
 function normalizeConfig(config: any): Record<string, any> {
   if (config && typeof config === 'object' && !Array.isArray(config)) {
@@ -101,12 +105,25 @@ export async function POST(request: NextRequest) {
       flowType,
     });
 
+    const metaFlowJson = buildMetaFlowJson({
+      name,
+      ctaLabel,
+      config,
+    });
+
+    await uploadMetaWhatsAppFlowJson({
+      workspaceId,
+      flowId: metaFlow.id,
+      flowJson: metaFlowJson,
+    });
+
     const storedConfig = {
       ...config,
+      metaFlowJson,
       metaSync: {
-        status: 'draft_created',
+        status: 'flow_json_uploaded',
         syncedAt: new Date().toISOString(),
-        message: 'Draft Flow created in Meta automatically.',
+        message: 'Draft Flow created in Meta and flow JSON uploaded successfully.',
       },
     };
 

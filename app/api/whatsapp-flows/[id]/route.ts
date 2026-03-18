@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { ensureCoreSchema, sql } from '@/lib/db';
 import { verifySession } from '@/lib/auth';
-import { createMetaWhatsAppFlow, updateMetaWhatsAppFlowMetadata } from '@/lib/meta-flows';
+import {
+  buildMetaFlowJson,
+  createMetaWhatsAppFlow,
+  updateMetaWhatsAppFlowMetadata,
+  uploadMetaWhatsAppFlowJson,
+} from '@/lib/meta-flows';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -118,10 +123,23 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const mergedConfig = body?.config
       ? { ...existingConfig, ...normalizeConfig(body.config) }
       : existingConfig;
+    const metaFlowJson = buildMetaFlowJson({
+      name,
+      ctaLabel: String(body?.ctaLabel || '').trim() || String(existing.cta_label || '').trim(),
+      config: mergedConfig,
+    });
+
+    await uploadMetaWhatsAppFlowJson({
+      workspaceId,
+      flowId: resolvedMetaFlowId,
+      flowJson: metaFlowJson,
+    });
+
+    mergedConfig.metaFlowJson = metaFlowJson;
     mergedConfig.metaSync = {
-      status: 'metadata_synced',
+      status: 'flow_json_uploaded',
       syncedAt: new Date().toISOString(),
-      message: 'Flow metadata synced with Meta.',
+      message: 'Flow metadata and flow JSON synced with Meta.',
     };
 
     await sql`
