@@ -67,6 +67,33 @@ export async function GET(
 
     const normalizedPhone = requestedPhone || normalizePhone(ownedRows[0].phone);
     const publicOrigin = getPublicOrigin(request);
+    const readAt = new Date().toISOString();
+
+    const markedReadRows = await sql`
+      UPDATE messages m
+      SET read_at = ${readAt}
+      FROM customers c
+      WHERE m.customer_id = c.id
+        AND m.workspace_id = ${workspaceId}
+        AND c.workspace_id = ${workspaceId}
+        AND m.direction = 'inbound'
+        AND m.read_at IS NULL
+        AND (
+          m.customer_id = ${customerId}
+          OR ${normalizedPhone || ''} = ''
+          OR replace(
+            regexp_replace(
+              regexp_replace(lower(COALESCE(c.phone, '')), '^whatsapp:', ''),
+              '[^0-9+]',
+              '',
+              'g'
+            ),
+            '+',
+            ''
+          ) = ${normalizedPhone || ''}
+        )
+      RETURNING m.id
+    `;
 
     const rows = await sql`
       SELECT m.id, m.content, m.media_url, m.direction, m.type, m.sent_at, m.read_at
@@ -91,6 +118,26 @@ export async function GET(
       ORDER BY m.sent_at DESC, m.id DESC
       LIMIT 150
     `;
+
+    if ((markedReadRows?.length || 0) > 0) {
+      try {
+        const unreadRows = await sql`
+          SELECT COUNT(*)::int AS total
+          FROM messages
+          WHERE workspace_id = ${workspaceId}
+            AND direction = 'inbound'
+            AND read_at IS NULL
+        `;
+
+        await pusherServer.trigger(`workspace-${workspaceId}`, 'messages-read', {
+          customerId,
+          readCount: markedReadRows.length,
+          totalUnread: Number(unreadRows?.[0]?.total || 0),
+        });
+      } catch (pusherError) {
+        console.error('Failed to trigger read event:', pusherError);
+      }
+    }
 
     const messages = rows.map((r: any) => ({
       id: r.id,

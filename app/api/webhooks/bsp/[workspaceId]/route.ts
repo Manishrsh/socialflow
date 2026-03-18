@@ -221,6 +221,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         )
       `;
 
+      const unreadRows = await sql`
+        SELECT COUNT(*)::int AS total
+        FROM messages
+        WHERE workspace_id = ${workspaceId}
+          AND direction = 'inbound'
+          AND read_at IS NULL
+      `;
+      const unreadCount = Number(unreadRows?.[0]?.total || 0);
+
       try {
         await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
           id: messageId,
@@ -234,6 +243,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           type: messageType,
           sentAt,
           readAt: null,
+          unreadCount,
         });
       } catch (err) {
         console.error('Failed to trigger Pusher event for inbound webhook:', err);
@@ -254,6 +264,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             url: '/dashboard/messages',
             icon: '/icon-light-32x32.png',
             badge: '/icon-light-32x32.png',
+            unreadCount,
           });
         }
       } catch {

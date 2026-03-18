@@ -89,7 +89,17 @@ self.addEventListener('push', (event) => {
     },
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil((async () => {
+    await self.registration.showNotification(title, options);
+
+    if (typeof payload.unreadCount === 'number' && 'setAppBadge' in self.registration) {
+      if (payload.unreadCount > 0) {
+        await self.registration.setAppBadge(payload.unreadCount);
+      } else if ('clearAppBadge' in self.registration) {
+        await self.registration.clearAppBadge();
+      }
+    }
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {
