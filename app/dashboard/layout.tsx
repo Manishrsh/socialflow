@@ -25,6 +25,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   FileText,
+  CalendarRange,
 } from 'lucide-react';
 
 interface NavItem {
@@ -222,6 +223,11 @@ export default function DashboardLayout({
       href: '/dashboard/automation',
       icon: <Zap className="w-5 h-5" />,
       badge: 'New',
+    },
+    {
+      name: 'WhatsApp Flows',
+      href: '/dashboard/whatsapp-flows',
+      icon: <CalendarRange className="w-5 h-5" />,
     },
     {
       name: 'Broadcasts',

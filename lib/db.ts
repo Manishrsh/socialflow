@@ -332,6 +332,27 @@ export async function ensureCoreSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_appointment_bookings_workspace_phone
       ON appointment_bookings(workspace_id, phone, created_at DESC)
     `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS whatsapp_flows (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        flow_type VARCHAR(50) DEFAULT 'appointment',
+        cta_label VARCHAR(60) DEFAULT 'Book Now',
+        meta_flow_id VARCHAR(255),
+        is_active BOOLEAN DEFAULT true,
+        config JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_flows_workspace_updated
+      ON whatsapp_flows(workspace_id, updated_at DESC)
+    `;
   })();
 
   return coreSchemaInitPromise;

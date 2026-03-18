@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
-import { Plus, Zap, ArrowRight } from 'lucide-react';
+import { Plus, Zap, ArrowRight, CalendarRange } from 'lucide-react';
 import useSWR from 'swr';
 
 interface Workflow {
@@ -55,13 +55,38 @@ export default function AutomationPage() {
           <h1 className="text-3xl font-bold">Automation Builder</h1>
           <p className="text-foreground/60 mt-2">Create and manage WhatsApp workflows</p>
         </div>
-        <Link href="/dashboard/automation/builder">
-          <Button className="gap-2">
-            <Plus className="w-4 h-4" />
-            New Workflow
+        <div className="flex items-center gap-3">
+          <Button asChild variant="outline" className="gap-2">
+            <Link href="/dashboard/whatsapp-flows">
+              <CalendarRange className="w-4 h-4" />
+              WhatsApp Flows
+            </Link>
           </Button>
-        </Link>
+          <Link href="/dashboard/automation/builder">
+            <Button className="gap-2">
+              <Plus className="w-4 h-4" />
+              New Workflow
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      <Card className="border-dashed p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Need a booking or intake menu?</h2>
+            <p className="mt-2 text-sm text-foreground/60">
+              Build real WhatsApp Flow definitions for appointments, lead capture, and support forms,
+              then connect their Meta Flow IDs back into your automation steps.
+            </p>
+          </div>
+          <Button asChild>
+            <Link href="/dashboard/whatsapp-flows/builder">
+              Open Flow Builder <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+      </Card>
 
       {/* Search */}
       <Input
