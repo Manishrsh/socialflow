@@ -114,6 +114,10 @@ export function buildMetaFlowJson({
       type: 'TextBody',
       text: introText,
     },
+    {
+      type: 'TextCaption',
+      text: successMessage,
+    },
   ];
 
   if (safeConfig.askName ?? true) {
@@ -215,34 +219,6 @@ export function buildMetaFlowJson({
               type: 'Form',
               name: 'form',
               children: formChildren,
-            },
-          ],
-        },
-      },
-      {
-        id: 'SUCCESS_SCREEN',
-        title: 'Done',
-        terminal: true,
-        success: true,
-        data: {},
-        layout: {
-          type: 'SingleColumnLayout',
-          children: [
-            {
-              type: 'TextHeading',
-              text: 'Request submitted',
-            },
-            {
-              type: 'TextBody',
-              text: successMessage,
-            },
-            {
-              type: 'Footer',
-              label: 'Close',
-              'on-click-action': {
-                name: 'complete',
-                payload,
-              },
             },
           ],
         },
