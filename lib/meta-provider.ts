@@ -122,10 +122,8 @@ async function loadLocalFlowDefaults(workspaceId: string, metaFlowId: string): P
       : (row.config || {});
   const screens = Array.isArray(config?.metaFlowJson?.screens) ? config.metaFlowJson.screens : [];
   const initialScreen = nonEmpty(screens?.[0]?.id);
-  const syncStatus = nonEmpty(config?.metaSync?.status).toLowerCase();
-
   return {
-    mode: syncStatus === 'published' ? 'published' : 'draft',
+    mode: 'draft',
     initialScreen: initialScreen || undefined,
   };
 }
@@ -186,10 +184,9 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
       const productRetailerId = nonEmpty(input.payload?.productRetailerId);
       const markReadMessageId = nonEmpty(input.payload?.messageIdToRead || input.payload?.messageId);
       const flowId = nonEmpty(input.payload?.flowId);
-      const flowCta = clamp(input.payload?.flowCta || 'Open Form', 20);
-      const flowToken = normalizeFlowToken(input.payload?.flowToken, flowId);
+      const flowCta = clamp(input.payload?.flowCta || 'Book Now', 20);
+      const flowToken = clamp(input.payload?.flowToken || 'test_booking_001', 64);
       const flowAction = nonEmpty(input.payload?.flowAction).toLowerCase();
-      const flowMode = nonEmpty(input.payload?.flowMode).toLowerCase();
       const localFlowDefaults = messageType === 'flow' && flowId
         ? await loadLocalFlowDefaults(input.workspaceId, flowId)
         : null;
@@ -211,17 +208,11 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
         if (!flowId) {
           return { success: false, error: 'flowId is required for flow messages' };
         }
-        const resolvedFlowAction = flowAction === 'data_exchange' ? 'data_exchange' : 'navigate';
-        const includeFlowAction = true;
-        const resolvedFlowData =
-          Object.keys(flowData).length > 0
-            ? flowData
-            : { phone: nonEmpty(input.recipient) };
+        const resolvedFlowAction = 'navigate';
+        const resolvedFlowData = Object.keys(flowData).length > 0
+          ? flowData
+          : { phone: nonEmpty(input.recipient) };
         const resolvedScreen = flowScreen || 'BOOKING_SCREEN';
-        const resolvedMode =
-          flowMode === 'published' || flowMode === 'draft'
-            ? flowMode
-            : (localFlowDefaults?.mode || 'draft');
         body = {
           ...body,
           type: 'interactive',
@@ -241,16 +232,11 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
                 flow_id: flowId,
                 flow_cta: flowCta,
                 flow_token: flowToken,
-                mode: resolvedMode,
-                ...(includeFlowAction
-                  ? {
-                      flow_action: resolvedFlowAction,
-                      flow_action_payload: {
-                        screen: resolvedScreen,
-                        data: resolvedFlowData,
-                      },
-                    }
-                  : {}),
+                flow_action: resolvedFlowAction,
+                flow_action_payload: {
+                  screen: resolvedScreen,
+                  data: resolvedFlowData,
+                },
               },
             },
           },
