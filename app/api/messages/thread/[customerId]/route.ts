@@ -4,6 +4,8 @@ import { verifySession } from '@/lib/auth';
 import { sql, ensureCoreSchema } from '@/lib/db';
 import { randomUUID } from 'crypto';
 import { queueOwnBspMessage } from '@/lib/own-bsp-service';
+import { getPublicOrigin, normalizePublicUrl } from '@/lib/public-url';
+import { pusherServer } from '@/lib/pusher';
 
 function parseMetadata(value: any): Record<string, any> {
   if (!value) return {};
@@ -55,18 +57,19 @@ export async function GET(
     }
 
     const rows = await sql`
-  SELECT id, content, media_url, direction, type, sent_at, read_at
-  FROM messages
-  WHERE workspace_id = ${workspaceId}
-    AND customer_id = ${customerId}
-  ORDER BY sent_at DESC, id DESC   -- 🔥 latest first
-  LIMIT 100
-`;
+      SELECT id, content, media_url, direction, type, sent_at, read_at
+      FROM messages
+      WHERE workspace_id = ${workspaceId}
+        AND customer_id = ${customerId}
+      ORDER BY sent_at DESC, id DESC
+      LIMIT 100
+    `;
 
+    const publicOrigin = getPublicOrigin(request);
     const messages = rows.map((r: any) => ({
       id: r.id,
       content: r.content || '',
-      mediaUrl: r.media_url || null,
+      mediaUrl: normalizePublicUrl(r.media_url || null, publicOrigin),
       direction: r.direction || 'inbound',
       type: r.type || 'text',
       sentAt: r.sent_at,
@@ -82,8 +85,6 @@ export async function GET(
     );
   }
 }
-
-import { pusherServer } from '@/lib/pusher';
 
 export async function POST(
   request: NextRequest,
@@ -131,6 +132,7 @@ export async function POST(
     const customer = customerRows[0];
     const metadata = parseMetadata(customer.metadata);
     const provider = String(metadata.provider || 'whatsapp').toLowerCase();
+    const publicOrigin = getPublicOrigin(request);
 
     const channel = provider === 'instagram' ? 'instagram' : 'whatsapp';
     const sendResult = await queueOwnBspMessage({
@@ -166,13 +168,15 @@ export async function POST(
 
     const newMsg = insertedRows[0];
 
-    // Trigger real-time update
     try {
       await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
         id: newMsg.id,
-        customerId: customerId,
+        customerId,
+        phone: String(customer.phone || ''),
+        name: metadata.name || null,
+        source: provider,
         content: newMsg.content || '',
-        mediaUrl: newMsg.media_url || null,
+        mediaUrl: normalizePublicUrl(newMsg.media_url || null, publicOrigin),
         direction: newMsg.direction || 'outbound',
         type: newMsg.type || 'text',
         sentAt: newMsg.sent_at,
@@ -184,6 +188,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
+      messageId: newMsg.id,
       outboxId: sendResult.outboxId || null,
       provider,
       response: sendResult,

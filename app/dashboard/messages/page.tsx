@@ -45,6 +45,13 @@ interface ThreadMessage {
   readAt?: string | null;
 }
 
+interface RealtimeMessagePayload extends ThreadMessage {
+  customerId: string;
+  phone?: string | null;
+  name?: string | null;
+  source?: string | null;
+}
+
 const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then((res) => res.json());
 
 function formatThreadTime(value: string | null): string {
@@ -75,6 +82,51 @@ function channelMeta(source: string) {
     icon: MessageSquare,
     chipClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   };
+}
+
+function normalizeClientMediaUrl(url: string | null | undefined): string | null {
+  const raw = String(url || '').trim();
+  if (!raw) return null;
+  if (typeof window === 'undefined') return raw;
+  if (raw.startsWith('/')) return `${window.location.origin}${raw}`;
+  return raw.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, window.location.origin);
+}
+
+function normalizeRealtimeMessage(data: any): RealtimeMessagePayload | null {
+  const id = String(data?.id || '').trim();
+  const customerId = String(data?.customerId || '').trim();
+  if (!id || !customerId) return null;
+
+  const sentAt = String(data?.sentAt || '').trim() || new Date().toISOString();
+  const content = String(data?.content || '');
+  const mediaUrl = normalizeClientMediaUrl(data?.mediaUrl || null);
+  const rawType = String(data?.type || '').trim().toLowerCase();
+  const type = rawType || (mediaUrl ? 'media' : 'text');
+
+  return {
+    id,
+    customerId,
+    phone: data?.phone ? String(data.phone) : null,
+    name: data?.name ? String(data.name) : null,
+    source: data?.source ? String(data.source).toLowerCase() : null,
+    content,
+    mediaUrl,
+    direction: data?.direction === 'outbound' ? 'outbound' : 'inbound',
+    type,
+    sentAt,
+    readAt: data?.readAt || null,
+  };
+}
+
+function getThreadPreview(message: Pick<ThreadMessage, 'content' | 'mediaUrl' | 'type'>): string {
+  if (String(message.content || '').trim()) return message.content;
+  if (message.mediaUrl) {
+    if (String(message.type || '').toLowerCase() === 'image') return '[Image]';
+    if (String(message.type || '').toLowerCase() === 'video') return '[Video]';
+    if (String(message.type || '').toLowerCase() === 'document') return '[Document]';
+    return '[Media]';
+  }
+  return '[No message]';
 }
 
 import { getPusherClient } from '@/lib/pusher-client';
@@ -168,31 +220,69 @@ export default function MessagesPage() {
     const channel = pusherClient.subscribe(channelName);
 
     channel.bind('new-message', (data: any) => {
-        if (data.customerId === selectedCustomerIdRef.current) {
-           mutateThreadMessagesRef.current((currentData: any) => {
-             if (!currentData) return currentData;
-             if ((currentData.messages || []).some((m: any) => m.id === data.id)) return currentData;
-             return { ...currentData, messages: [...(currentData.messages || []), data] };
-           }, false);
-           setTimeout(() => {
-               messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-           }, 100);
+      const message = normalizeRealtimeMessage(data);
+      if (!message) return;
+
+      if (message.customerId === selectedCustomerIdRef.current) {
+        mutateThreadMessagesRef.current((currentData: any) => {
+          const existingMessages = Array.isArray(currentData?.messages) ? currentData.messages : [];
+          if (existingMessages.some((m: any) => m.id === message.id)) return currentData;
+
+          const nextMessages = [...existingMessages, message].sort((a, b) => {
+            const timeDiff = new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
+            if (timeDiff !== 0) return timeDiff;
+            return String(a.id).localeCompare(String(b.id));
+          });
+
+          return {
+            ...(currentData || { success: true }),
+            messages: nextMessages,
+          };
+        }, false);
+
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      }
+
+      mutateThreadsRef.current((currentThreads: any) => {
+        const existingThreads = Array.isArray(currentThreads?.threads) ? currentThreads.threads : [];
+        const updatedList = [...existingThreads];
+        const threadIdx = updatedList.findIndex((t) => t.customerId === message.customerId);
+
+        if (threadIdx > -1) {
+          updatedList[threadIdx] = {
+            ...updatedList[threadIdx],
+            source: message.source || updatedList[threadIdx].source,
+            phone: message.phone || updatedList[threadIdx].phone,
+            name: message.name || updatedList[threadIdx].name,
+            lastMessage: getThreadPreview(message),
+            lastMessageType: message.type,
+            direction: message.direction,
+            lastMessageAt: message.sentAt,
+          };
+          const [movedThread] = updatedList.splice(threadIdx, 1);
+          updatedList.unshift(movedThread);
+        } else if (message.phone) {
+          updatedList.unshift({
+            customerId: message.customerId,
+            name: message.name || message.phone,
+            phone: message.phone,
+            source: message.source || 'whatsapp',
+            lastMessage: getThreadPreview(message),
+            lastMessageType: message.type,
+            direction: message.direction,
+            lastMessageAt: message.sentAt,
+          });
+        } else {
+          setTimeout(() => mutateThreadsRef.current(), 1000);
         }
 
-        mutateThreadsRef.current((currentThreads: any) => {
-            if (!currentThreads) return currentThreads;
-            let updatedList = [...(currentThreads.threads || [])];
-            const threadIdx = updatedList.findIndex(t => t.customerId === data.customerId);
-            if (threadIdx > -1) {
-                updatedList[threadIdx].lastMessage = data.content;
-                updatedList[threadIdx].lastMessageAt = data.sentAt;
-                const movedThread = updatedList.splice(threadIdx, 1)[0];
-                updatedList.unshift(movedThread);
-            } else {
-                setTimeout(() => mutateThreadsRef.current(), 1000);
-            }
-            return { ...currentThreads, threads: updatedList };
-        }, false);
+        return {
+          ...(currentThreads || { success: true }),
+          threads: updatedList,
+        };
+      }, false);
     });
 
     return () => {
@@ -230,11 +320,10 @@ export default function MessagesPage() {
       }
 
       setReplyText('');
-      // Pusher doesn't echo back to the sender, so optimistically add the message locally
       mutateThreadMessages((currentData: any) => {
-        if (!currentData) return currentData;
+        const existingMessages = Array.isArray(currentData?.messages) ? currentData.messages : [];
         const optimistic: ThreadMessage = {
-          id: data?.outboxId || `temp-${Date.now()}`,
+          id: data?.messageId || data?.outboxId || `temp-${Date.now()}`,
           content: sentText,
           mediaUrl: null,
           direction: 'outbound',
@@ -242,19 +331,27 @@ export default function MessagesPage() {
           sentAt: new Date().toISOString(),
           readAt: null,
         };
-        if ((currentData.messages || []).some((m: any) => m.id === optimistic.id)) return currentData;
-        return { ...currentData, messages: [...(currentData.messages || []), optimistic] };
+        if (existingMessages.some((m: any) => m.id === optimistic.id)) return currentData;
+        return {
+          ...(currentData || { success: true }),
+          messages: [...existingMessages, optimistic],
+        };
       }, false);
       mutateThreads((currentThreads: any) => {
-        if (!currentThreads) return currentThreads;
-        const updatedList = [...(currentThreads.threads || [])];
+        const updatedList = [...(currentThreads?.threads || [])];
         const idx = updatedList.findIndex((t) => t.customerId === selectedCustomerId);
         if (idx > -1) {
-          updatedList[idx] = { ...updatedList[idx], lastMessage: sentText, lastMessageAt: new Date().toISOString() };
+          updatedList[idx] = {
+            ...updatedList[idx],
+            lastMessage: sentText,
+            lastMessageType: 'text',
+            direction: 'outbound',
+            lastMessageAt: new Date().toISOString(),
+          };
           const [moved] = updatedList.splice(idx, 1);
           updatedList.unshift(moved);
         }
-        return { ...currentThreads, threads: updatedList };
+        return { ...(currentThreads || { success: true }), threads: updatedList };
       }, false);
     } catch (error: any) {
       alert(error?.message || 'Failed to send reply');
@@ -474,7 +571,7 @@ export default function MessagesPage() {
                         >
                           {msg.mediaUrl ? (
                             <div className="space-y-2">
-                              {msg.type?.toLowerCase() === 'media' || msg.type?.toLowerCase() === 'image' || /\.(jpe?g|png|gif|webp)(\?.*)?$/i.test(msg.mediaUrl) ? (
+                              {['media', 'image', 'sticker'].includes(msg.type?.toLowerCase()) || /\.(jpe?g|png|gif|webp|bmp|svg)(\?.*)?$/i.test(msg.mediaUrl) ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   src={msg.mediaUrl}

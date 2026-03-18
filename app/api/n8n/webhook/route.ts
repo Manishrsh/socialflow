@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { pusherServer } from '@/lib/pusher';
+import { getPublicOrigin, normalizePublicUrl } from '@/lib/public-url';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const publicOrigin = getPublicOrigin(request);
 
     // Webhook signature verification (basic)
     const signature = request.headers.get('x-n8n-signature');
@@ -48,10 +50,11 @@ export async function POST(request: NextRequest) {
     // Log the message in database
     const messageId = uuidv4();
     const now = new Date();
+    const normalizedMediaUrl = normalizePublicUrl(mediaUrl || null, publicOrigin);
 
     await sql`
       INSERT INTO messages (id, workspace_id, customer_id, workflow_id, direction, type, content, media_url, metadata, sent_at)
-      VALUES (${messageId}, ${workspaceId || null}, ${customerId}, ${workflowId || null}, 'outbound', ${messageType}, ${message}, ${mediaUrl || null}, ${JSON.stringify(metadata || {})}, ${now})
+      VALUES (${messageId}, ${workspaceId || null}, ${customerId}, ${workflowId || null}, 'outbound', ${messageType}, ${message}, ${normalizedMediaUrl}, ${JSON.stringify(metadata || {})}, ${now})
     `;
 
     // Update customer last interaction
@@ -88,8 +91,11 @@ export async function POST(request: NextRequest) {
         await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
           id: messageId,
           customerId: customerId,
+          phone: customerPhone || '',
+          name: metadata?.name || null,
+          source: metadata?.provider || 'whatsapp',
           content: message || '',
-          mediaUrl: mediaUrl || null,
+          mediaUrl: normalizedMediaUrl,
           direction: 'outbound',
           type: messageType || 'text',
           sentAt: now.toISOString(),

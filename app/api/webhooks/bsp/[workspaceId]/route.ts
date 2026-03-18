@@ -4,6 +4,7 @@ import { sql, ensureCoreSchema } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { mapInboundEvent } from '@/lib/bsp-webhook-mappers';
 import { isPushConfigured, sendPushToWorkspace } from '@/lib/push';
+import { getPublicOrigin, normalizePublicUrl } from '@/lib/public-url';
 
 interface RouteParams {
   params: Promise<{
@@ -94,6 +95,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await ensureCoreSchema();
     const { workspaceId } = await params;
     const provider = getProviderFromRequest(request);
+    const publicOrigin = getPublicOrigin(request);
 
     const requestToken = getTokenFromRequest(request);
     const requiresSharedToken = provider !== 'meta';
@@ -141,10 +143,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             ${0},
             ${'Duplicate webhook ignored'},
             ${JSON.stringify({
-          provider: normalized.provider,
-          externalMessageId: normalized.externalMessageId,
-          eventType: normalized.eventType,
-        })}
+              provider: normalized.provider,
+              externalMessageId: normalized.externalMessageId,
+              eventType: normalized.eventType,
+            })}
           FROM workflows w
           WHERE w.workspace_id = ${workspaceId} AND w.is_active = true
         `;
@@ -181,9 +183,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${workspaceId},
           ${String(normalized.phone)},
           ${JSON.stringify({
-        provider: normalized.provider,
-        externalMessageId: normalized.externalMessageId || null,
-      })}
+            provider: normalized.provider,
+            externalMessageId: normalized.externalMessageId || null,
+          })}
         )
         ON CONFLICT (workspace_id, phone)
         DO UPDATE SET updated_at = CURRENT_TIMESTAMP
@@ -195,10 +197,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (customerId && (normalized.message || normalized.mediaUrl)) {
       messageId = uuidv4();
 
-      const messageType = normalized.mediaUrl ? 'media' : 'text';
+      const normalizedEventType = String(normalized.eventType || '').trim().toLowerCase();
+      const messageType = normalized.mediaUrl
+        ? (['image', 'video', 'audio', 'document', 'sticker'].includes(normalizedEventType)
+            ? normalizedEventType
+            : 'media')
+        : 'text';
       const content = normalized.message || null;
-      const mediaUrl = normalized.mediaUrl || null;
-      const sent_at = new Date().toISOString();
+      const mediaUrl = normalizePublicUrl(normalized.mediaUrl || null, publicOrigin);
+      const sentAt = new Date().toISOString();
 
       await sql`
         INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url, sent_at)
@@ -210,7 +217,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${messageType},
           ${content},
           ${mediaUrl},
-          ${sent_at}
+          ${sentAt}
         )
       `;
 
@@ -218,11 +225,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
           id: messageId,
           customerId,
+          phone: String(normalized.phone || ''),
+          name: null,
+          source: normalized.provider,
           content: content || '',
-          mediaUrl: mediaUrl,
+          mediaUrl,
           direction: 'inbound',
           type: messageType,
-          sentAt: sent_at,
+          sentAt,
           readAt: null,
         });
       } catch (err) {
@@ -251,7 +261,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Background automation trigger for active workflows with supported inbound trigger nodes.
     try {
       if (INTERNAL_EXECUTION_TOKEN) {
         const baseUrl = request.nextUrl.origin || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';

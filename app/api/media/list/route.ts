@@ -2,29 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql, ensureCoreSchema } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/auth';
+import { getPublicOrigin, normalizePublicUrl } from '@/lib/public-url';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-
-function getPublicOrigin(request: NextRequest): string {
-  const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').trim();
-  const forwardedHost = String(request.headers.get('x-forwarded-host') || '').trim();
-  if (forwardedProto && forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`;
-  }
-
-  const envBaseUrl = String(process.env.NEXT_PUBLIC_BASE_URL || '').trim();
-  if (envBaseUrl) return envBaseUrl.replace(/\/$/, '');
-
-  return new URL(request.url).origin;
-}
-
-function normalizeMediaUrl(url: string, publicOrigin: string): string {
-  const raw = String(url || '').trim();
-  if (!raw) return raw;
-  if (raw.startsWith('/')) return `${publicOrigin}${raw}`;
-  return raw.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, publicOrigin);
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -146,7 +127,7 @@ export async function GET(request: NextRequest) {
       file_name: row.name || 'file',
       file_type: row.mime_type || row.type || 'application/octet-stream',
       file_size: row.size_bytes || 0,
-      url: normalizeMediaUrl(String(row.url || ''), publicOrigin),
+      url: normalizePublicUrl(String(row.url || ''), publicOrigin),
       created_at: row.created_at,
     }));
 
