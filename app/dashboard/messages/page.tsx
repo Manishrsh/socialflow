@@ -202,8 +202,8 @@ export default function MessagesPage() {
   );
 
   const { data: threadMessagesData, isLoading: isMessagesLoading, mutate: mutateThreadMessages } = useSWR(
-    workspace && selectedCustomerId
-      ? `/api/messages/thread/${selectedCustomerId}?workspaceId=${workspace.id}`
+    workspace && selectedCustomerId && selectedThread?.phone
+      ? `/api/messages/thread/${selectedCustomerId}?workspaceId=${workspace.id}&phone=${encodeURIComponent(selectedThread.phone)}`
       : null,
     fetcher,
     {

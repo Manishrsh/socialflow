@@ -47,6 +47,7 @@ export async function GET(
     const { customerId } = await params;
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
+    const requestedPhone = normalizePhone(searchParams.get('phone'));
     if (!workspaceId) {
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
     }
@@ -64,7 +65,7 @@ export async function GET(
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const normalizedPhone = normalizePhone(ownedRows[0].phone);
+    const normalizedPhone = requestedPhone || normalizePhone(ownedRows[0].phone);
     const publicOrigin = getPublicOrigin(request);
 
     const rows = await sql`
@@ -131,6 +132,7 @@ export async function POST(
     const { customerId } = await params;
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
+    const requestedPhone = normalizePhone(searchParams.get('phone'));
     if (!workspaceId) {
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
     }
@@ -228,4 +230,5 @@ export async function POST(
     );
   }
 }
+
 
