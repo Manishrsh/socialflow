@@ -67,34 +67,29 @@ export async function GET(
     const normalizedPhone = normalizePhone(ownedRows[0].phone);
     const publicOrigin = getPublicOrigin(request);
 
-    const rows = normalizedPhone
-      ? await sql`
-          SELECT m.id, m.content, m.media_url, m.direction, m.type, m.sent_at, m.read_at
-          FROM messages m
-          INNER JOIN customers c ON c.id = m.customer_id
-          WHERE m.workspace_id = ${workspaceId}
-            AND c.workspace_id = ${workspaceId}
-            AND regexp_replace(
-              regexp_replace(
-                regexp_replace(lower(COALESCE(c.phone, '')), '^whatsapp:', ''),
-                '[^0-9+]',
-                '',
-                'g'
-              ),
-              '^\+',
-              ''
-            ) = ${normalizedPhone}
-          ORDER BY m.sent_at DESC, m.id DESC
-          LIMIT 150
-        `
-      : await sql`
-          SELECT id, content, media_url, direction, type, sent_at, read_at
-          FROM messages
-          WHERE workspace_id = ${workspaceId}
-            AND customer_id = ${customerId}
-          ORDER BY sent_at DESC, id DESC
-          LIMIT 150
-        `;
+    const rows = await sql`
+      SELECT m.id, m.content, m.media_url, m.direction, m.type, m.sent_at, m.read_at
+      FROM messages m
+      INNER JOIN customers c ON c.id = m.customer_id
+      WHERE m.workspace_id = ${workspaceId}
+        AND c.workspace_id = ${workspaceId}
+        AND (
+          m.customer_id = ${customerId}
+          OR ${normalizedPhone || ''} = ''
+          OR regexp_replace(
+            regexp_replace(
+              regexp_replace(lower(COALESCE(c.phone, '')), '^whatsapp:', ''),
+              '[^0-9+]',
+              '',
+              'g'
+            ),
+            '^\+',
+            ''
+          ) = ${normalizedPhone || ''}
+        )
+      ORDER BY m.sent_at DESC, m.id DESC
+      LIMIT 150
+    `;
 
     const messages = rows.map((r: any) => ({
       id: r.id,
@@ -233,3 +228,4 @@ export async function POST(
     );
   }
 }
+
