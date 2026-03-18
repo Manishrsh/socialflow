@@ -89,6 +89,8 @@ export function WhatsAppFlowBuilder({ workspaceId, initialFlow }: Props) {
     }),
     [form]
   );
+  const lastMetaSync = initialFlow?.config?.metaSync || null;
+  const lastMetaFlowJson = initialFlow?.config?.metaFlowJson || null;
 
   const updateField = (key: string, value: string | boolean) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -341,6 +343,29 @@ export function WhatsAppFlowBuilder({ workspaceId, initialFlow }: Props) {
             </div>
             <pre className="max-h-[420px] overflow-auto rounded-2xl bg-muted p-4 text-xs">
               {JSON.stringify(generatedSchema, null, 2)}
+            </pre>
+          </Card>
+
+          <Card className="space-y-3 p-6">
+            <div>
+              <h2 className="text-lg font-semibold">Last Meta Sync</h2>
+              <p className="text-sm text-foreground/60">
+                Compare this with the JSON currently visible inside Meta Flows Manager.
+              </p>
+            </div>
+            {lastMetaSync ? (
+              <div className="rounded-2xl border p-4 text-sm">
+                <div>Status: {String(lastMetaSync.status || 'unknown')}</div>
+                <div className="mt-1">Time: {String(lastMetaSync.syncedAt || '-')}</div>
+                <div className="mt-1 text-foreground/70">{String(lastMetaSync.message || '')}</div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border p-4 text-sm text-foreground/60">
+                No Meta sync recorded yet.
+              </div>
+            )}
+            <pre className="max-h-[420px] overflow-auto rounded-2xl bg-muted p-4 text-xs">
+              {JSON.stringify(lastMetaFlowJson, null, 2)}
             </pre>
           </Card>
         </div>
