@@ -122,9 +122,10 @@ async function loadLocalFlowDefaults(workspaceId: string, metaFlowId: string): P
       : (row.config || {});
   const screens = Array.isArray(config?.metaFlowJson?.screens) ? config.metaFlowJson.screens : [];
   const initialScreen = nonEmpty(screens?.[0]?.id);
+  const syncStatus = nonEmpty(config?.metaSync?.status).toLowerCase();
 
   return {
-    mode: 'draft',
+    mode: syncStatus === 'published' ? 'published' : 'draft',
     initialScreen: initialScreen || undefined,
   };
 }
@@ -210,16 +211,17 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
         if (!flowId) {
           return { success: false, error: 'flowId is required for flow messages' };
         }
-        const resolvedFlowAction =
-          flowAction === 'data_exchange'
-            ? 'data_exchange'
-            : (flowScreen ? 'navigate' : '');
-        const includeFlowAction =
-          resolvedFlowAction === 'data_exchange' || resolvedFlowAction === 'navigate';
+        const resolvedFlowAction = flowAction === 'data_exchange' ? 'data_exchange' : 'navigate';
+        const includeFlowAction = true;
         const resolvedFlowData =
           Object.keys(flowData).length > 0
             ? flowData
             : { phone: nonEmpty(input.recipient) };
+        const resolvedScreen = flowScreen || 'BOOKING_SCREEN';
+        const resolvedMode =
+          flowMode === 'published' || flowMode === 'draft'
+            ? flowMode
+            : (localFlowDefaults?.mode || 'draft');
         body = {
           ...body,
           type: 'interactive',
@@ -239,14 +241,12 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
                 flow_id: flowId,
                 flow_cta: flowCta,
                 flow_token: flowToken,
-                ...((flowMode === 'published' || flowMode === 'draft')
-                  ? { mode: flowMode }
-                  : {}),
+                mode: resolvedMode,
                 ...(includeFlowAction
                   ? {
                       flow_action: resolvedFlowAction,
                       flow_action_payload: {
-                        ...(flowScreen ? { screen: flowScreen } : {}),
+                        screen: resolvedScreen,
                         data: resolvedFlowData,
                       },
                     }
