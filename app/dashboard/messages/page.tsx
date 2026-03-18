@@ -474,7 +474,7 @@ export default function MessagesPage() {
                         >
                           {msg.mediaUrl ? (
                             <div className="space-y-2">
-                              {msg.type === 'media' || msg.type === 'image' ? (
+                              {msg.type?.toLowerCase() === 'media' || msg.type?.toLowerCase() === 'image' || /\.(jpe?g|png|gif|webp)(\?.*)?$/i.test(msg.mediaUrl) ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   src={msg.mediaUrl}

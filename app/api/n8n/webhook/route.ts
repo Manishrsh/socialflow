@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
+import { pusherServer } from '@/lib/pusher';
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,56 +32,72 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get workspace_id for real-time events routing
+    let workspaceId = body.workspaceId;
+    if (!workspaceId) {
+      try {
+        const customerRes = await sql`SELECT workspace_id FROM customers WHERE id = ${customerId} LIMIT 1`;
+        if (customerRes && customerRes.length > 0) {
+          workspaceId = customerRes[0].workspace_id;
+        }
+      } catch (e) {
+        console.error('Error fetching workspaceId:', e);
+      }
+    }
+
     // Log the message in database
     const messageId = uuidv4();
     const now = new Date();
 
-    await query(
-      `INSERT INTO messages (id, customer_id, workflow_id, direction, message_type, content, media_url, metadata, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        messageId,
-        customerId,
-        workflowId || null,
-        'outgoing',
-        messageType,
-        message,
-        mediaUrl || null,
-        JSON.stringify(metadata || {}),
-        now,
-      ]
-    );
+    await sql`
+      INSERT INTO messages (id, workspace_id, customer_id, workflow_id, direction, type, content, media_url, metadata, sent_at)
+      VALUES (${messageId}, ${workspaceId || null}, ${customerId}, ${workflowId || null}, 'outbound', ${messageType}, ${message}, ${mediaUrl || null}, ${JSON.stringify(metadata || {})}, ${now})
+    `;
 
     // Update customer last interaction
-    await query(
-      `UPDATE customers SET last_message_date = $1 WHERE id = $2`,
-      [now, customerId]
-    );
+    await sql`
+      UPDATE customers SET last_message_date = ${now} WHERE id = ${customerId}
+    `;
 
     // Execute post-webhook actions
     if (action === 'save_contact') {
       // Update customer profile
-      await query(
-        `UPDATE customers SET name = COALESCE($1, name), updated_at = $2 WHERE id = $3`,
-        [metadata?.name || null, now, customerId]
-      );
+      await sql`
+        UPDATE customers SET name = COALESCE(${metadata?.name || null}, name), updated_at = ${now} WHERE id = ${customerId}
+      `;
     }
 
     if (action === 'add_tag' && metadata?.tag) {
       // Add tag to customer
-      await query(
-        `UPDATE customers SET tags = array_append(tags, $1), updated_at = $2 WHERE id = $3`,
-        [metadata.tag, now, customerId]
-      );
+      await sql`
+        UPDATE customers SET tags = array_append(tags, ${metadata.tag}), updated_at = ${now} WHERE id = ${customerId}
+      `;
     }
 
     if (action === 'create_order' && metadata?.orderData) {
       // Create order record
       const orderId = uuidv4();
-      await query(
-        `INSERT INTO orders (id, customer_id, data, created_at) VALUES ($1, $2, $3, $4)`,
-        [orderId, customerId, JSON.stringify(metadata.orderData), now]
-      );
+      await sql`
+        INSERT INTO orders (id, customer_id, data, created_at) VALUES (${orderId}, ${customerId}, ${JSON.stringify(metadata.orderData)}, ${now})
+      `;
+    }
+
+    // Trigger Real-time event for chatbox
+    if (workspaceId) {
+      try {
+        await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
+          id: messageId,
+          customerId: customerId,
+          content: message || '',
+          mediaUrl: mediaUrl || null,
+          direction: 'outbound',
+          type: messageType || 'text',
+          sentAt: now.toISOString(),
+          readAt: null
+        });
+      } catch (pusherError) {
+        console.error('Failed to trigger Pusher event:', pusherError);
+      }
     }
 
     return NextResponse.json({
