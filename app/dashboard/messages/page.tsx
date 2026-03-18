@@ -52,6 +52,8 @@ interface RealtimeMessagePayload extends ThreadMessage {
   source?: string | null;
 }
 
+type LocalMessagesByCustomer = Record<string, ThreadMessage[]>;
+
 const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then((res) => res.json());
 
 function formatThreadTime(value: string | null): string {
@@ -129,6 +131,27 @@ function getThreadPreview(message: Pick<ThreadMessage, 'content' | 'mediaUrl' | 
   return '[No message]';
 }
 
+function sortMessages(messages: ThreadMessage[]): ThreadMessage[] {
+  return [...messages].sort((a, b) => {
+    const timeDiff = new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return String(a.id).localeCompare(String(b.id));
+  });
+}
+
+function mergeMessageLists(...lists: Array<ThreadMessage[] | null | undefined>): ThreadMessage[] {
+  const merged = new Map<string, ThreadMessage>();
+
+  for (const list of lists) {
+    for (const message of list || []) {
+      if (!message?.id) continue;
+      merged.set(message.id, message);
+    }
+  }
+
+  return sortMessages(Array.from(merged.values()));
+}
+
 import { getPusherClient } from '@/lib/pusher-client';
 
 export default function MessagesPage() {
@@ -141,6 +164,7 @@ export default function MessagesPage() {
   const [isExportingAll, setIsExportingAll] = useState(false);
   const [isExportingThread, setIsExportingThread] = useState(false);
   const [showMobileThread, setShowMobileThread] = useState(false);
+  const [localMessagesByCustomer, setLocalMessagesByCustomer] = useState<LocalMessagesByCustomer>({});
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const providerQuery = providerFilter === 'all' ? '' : `&provider=${providerFilter}`;
@@ -152,8 +176,8 @@ export default function MessagesPage() {
       : null,
     fetcher,
     {
-      refreshInterval: 30000,
-      revalidateOnFocus: false,
+      refreshInterval: 0,
+      revalidateOnFocus: true,
       dedupingInterval: 2000,
     }
   );
@@ -161,7 +185,13 @@ export default function MessagesPage() {
   const threads: ThreadItem[] = threadsData?.threads || [];
 
   useEffect(() => {
-    if (!selectedCustomerId && threads.length > 0) {
+    if (threads.length === 0) {
+      if (selectedCustomerId) setSelectedCustomerId(null);
+      return;
+    }
+
+    const selectedStillExists = threads.some((thread) => thread.customerId === selectedCustomerId);
+    if (!selectedCustomerId || !selectedStillExists) {
       setSelectedCustomerId(threads[0].customerId);
     }
   }, [threads, selectedCustomerId]);
@@ -177,8 +207,8 @@ export default function MessagesPage() {
       : null,
     fetcher,
     {
-      refreshInterval: 30000,
-      revalidateOnFocus: false,
+      refreshInterval: 0,
+      revalidateOnFocus: true,
       dedupingInterval: 2000,
     }
   );
