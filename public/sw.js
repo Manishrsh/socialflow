@@ -1,12 +1,17 @@
+const CACHE_NAME = 'warechat-shell-v2';
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open('warechat-shell-v1').then((cache) =>
+    caches.open(CACHE_NAME).then((cache) =>
       cache.addAll([
         '/',
         '/dashboard',
         '/offline',
         '/manifest.webmanifest',
-        '/icon-light-32x32.png',
+        '/icon-192x192.png',
+        '/icon-512x512.png',
+        '/icon-maskable-512x512.png',
+        '/badge-72x72.png',
         '/apple-icon.png',
       ])
     )
@@ -15,7 +20,12 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then(async (keys) => {
+      await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
+      await self.clients.claim();
+    })
+  );
 });
 
 self.addEventListener('fetch', (event) => {
@@ -28,13 +38,14 @@ self.addEventListener('fetch', (event) => {
   const isStaticAsset =
     requestUrl.pathname.startsWith('/_next/') ||
     requestUrl.pathname.startsWith('/icon') ||
+    requestUrl.pathname.startsWith('/badge') ||
     requestUrl.pathname.startsWith('/apple-icon') ||
     requestUrl.pathname === '/manifest.webmanifest';
 
   if (isNavigation) {
     event.respondWith(
       fetch(event.request).catch(async () => {
-        const cache = await caches.open('warechat-shell-v1');
+        const cache = await caches.open(CACHE_NAME);
         return (await cache.match('/offline')) || Response.error();
       })
     );
@@ -47,7 +58,7 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         return fetch(event.request).then((response) => {
           const cloned = response.clone();
-          void caches.open('warechat-shell-v1').then((cache) => cache.put(event.request, cloned));
+          void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
           return response;
         });
       })
@@ -71,8 +82,8 @@ self.addEventListener('push', (event) => {
   const options = {
     body: payload.body || 'You received a new message',
     tag: payload.tag || 'warechat-message',
-    icon: payload.icon || '/icon-light-32x32.png',
-    badge: payload.badge || '/icon-light-32x32.png',
+    icon: payload.icon || '/icon-192x192.png',
+    badge: payload.badge || '/badge-72x72.png',
     data: {
       url: payload.url || '/dashboard/messages',
     },
