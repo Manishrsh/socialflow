@@ -214,19 +214,10 @@ export default function MessagesPage() {
   );
   
   const threadMessages: ThreadMessage[] = useMemo(() => {
-  const msgs = threadMessagesData?.messages || [];
-
-  // 🔥 Sort properly (safety fix)
-  const sorted = [...msgs].sort((a, b) => {
-    const timeDiff = new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
-    if (timeDiff !== 0) return timeDiff;
-
-    // fallback for same timestamp
-    return a.id.localeCompare(b.id);
-  });
-
-  return sorted;
-}, [threadMessagesData]);
+    const serverMessages = Array.isArray(threadMessagesData?.messages) ? threadMessagesData.messages : [];
+    const localMessages = selectedCustomerId ? localMessagesByCustomer[selectedCustomerId] || [] : [];
+    return mergeMessageLists(serverMessages, localMessages);
+  }, [localMessagesByCustomer, selectedCustomerId, threadMessagesData]);
 
   const selectedCustomerIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -252,6 +243,11 @@ export default function MessagesPage() {
     channel.bind('new-message', (data: any) => {
       const message = normalizeRealtimeMessage(data);
       if (!message) return;
+
+      setLocalMessagesByCustomer((current) => ({
+        ...current,
+        [message.customerId]: mergeMessageLists(current[message.customerId], [message]),
+      }));
 
       if (message.customerId === selectedCustomerIdRef.current) {
         mutateThreadMessagesRef.current((currentData: any) => {
@@ -322,8 +318,14 @@ export default function MessagesPage() {
   }, [workspace?.id]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [threadMessages.length, selectedCustomerId]);
+    if (!selectedCustomerId || isMessagesLoading) return;
+
+    const timer = window.setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [isMessagesLoading, selectedCustomerId, threadMessages]);
 
   const handleSelectThread = (customerId: string) => {
     setSelectedCustomerId(customerId);
@@ -350,6 +352,22 @@ export default function MessagesPage() {
       }
 
       setReplyText('');
+      setLocalMessagesByCustomer((current) => {
+        const optimistic: ThreadMessage = {
+          id: data?.messageId || data?.outboxId || `temp-${Date.now()}`,
+          content: sentText,
+          mediaUrl: null,
+          direction: 'outbound',
+          type: 'text',
+          sentAt: new Date().toISOString(),
+          readAt: null,
+        };
+
+        return {
+          ...current,
+          [selectedCustomerId]: mergeMessageLists(current[selectedCustomerId], [optimistic]),
+        };
+      });
       mutateThreadMessages((currentData: any) => {
         const existingMessages = Array.isArray(currentData?.messages) ? currentData.messages : [];
         const optimistic: ThreadMessage = {
@@ -673,3 +691,4 @@ export default function MessagesPage() {
     </div>
   );
 }
+
