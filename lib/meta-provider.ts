@@ -45,8 +45,15 @@ function parseFlowData(value: any): Record<string, any> {
 }
 
 function randomFlowToken(flowId: string): string {
-  const seed = flowId || 'flow';
-  return `${seed}_${Date.now()}`;
+  const seed = (flowId || 'flow').replace(/[^a-zA-Z0-9_-]/g, '').slice(-16) || 'flow';
+  return `${seed}_${Date.now().toString(36)}`.slice(0, 64);
+}
+
+function normalizeFlowToken(value: any, flowId: string): string {
+  const normalized = nonEmpty(value)
+    .replace(/[^a-zA-Z0-9_.-]/g, '_')
+    .slice(0, 64);
+  return normalized || randomFlowToken(flowId);
 }
 
 async function loadWorkspaceMetaCredentials(workspaceId: string): Promise<Partial<MetaCredentials>> {
@@ -146,8 +153,8 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
       const markReadMessageId = nonEmpty(input.payload?.messageIdToRead || input.payload?.messageId);
       const flowId = nonEmpty(input.payload?.flowId);
       const flowCta = clamp(input.payload?.flowCta || 'Open Form', 30);
-      const flowToken = nonEmpty(input.payload?.flowToken || randomFlowToken(flowId));
-      const flowAction = nonEmpty(input.payload?.flowAction || 'navigate').toLowerCase();
+      const flowToken = normalizeFlowToken(input.payload?.flowToken, flowId);
+      const flowAction = nonEmpty(input.payload?.flowAction).toLowerCase();
       const flowScreen = nonEmpty(input.payload?.flowScreen);
       const flowData = parseFlowData(input.payload?.flowDataJson);
 
@@ -166,6 +173,7 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
         if (!flowId) {
           return { success: false, error: 'flowId is required for flow messages' };
         }
+        const includeFlowAction = flowAction === 'data_exchange' || Boolean(flowScreen) || Object.keys(flowData).length > 0;
         body = {
           ...body,
           type: 'interactive',
@@ -185,9 +193,9 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
                 flow_id: flowId,
                 flow_cta: flowCta,
                 flow_token: flowToken,
-                flow_action: flowAction === 'data_exchange' ? 'data_exchange' : 'navigate',
-                ...(flowScreen || Object.keys(flowData).length > 0
+                ...(includeFlowAction
                   ? {
+                      flow_action: flowAction === 'data_exchange' ? 'data_exchange' : 'navigate',
                       flow_action_payload: {
                         ...(flowScreen ? { screen: flowScreen } : {}),
                         data: flowData,
