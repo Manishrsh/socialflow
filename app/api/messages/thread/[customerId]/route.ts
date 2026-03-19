@@ -93,20 +93,20 @@ export async function GET(
 
     // ✅ FIXED: Fetch messages ONLY for this customer
     const rows = await sql`
-      SELECT 
-        id,
-        content,
-        media_url,
-        direction,
-        type,
-        sent_at,
-        read_at
-      FROM messages
-      WHERE workspace_id = ${workspaceId}
-        AND customer_id = ${customerId}
-      ORDER BY sent_at DESC, id DESC
-      LIMIT 150
-    `;
+  SELECT 
+    id,
+    content,
+    media_url,
+    direction,
+    type,
+    sent_at,
+    read_at
+  FROM messages
+  WHERE workspace_id = ${workspaceId}
+    AND customer_id = ${customerId}
+  ORDER BY id DESC
+  LIMIT 150
+`;
 
     // ✅ Real-time update
     if ((markedReadRows?.length || 0) > 0) {
