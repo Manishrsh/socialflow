@@ -104,7 +104,7 @@ export async function GET(
   FROM messages
   WHERE workspace_id = ${workspaceId}
     AND customer_id = ${customerId}
-  ORDER BY created_at DESC
+  ORDER BY sent_at DESC
   LIMIT 150
 `;
 
