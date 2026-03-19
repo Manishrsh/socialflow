@@ -33,8 +33,11 @@ export async function GET(
 ) {
   try {
     await ensureCoreSchema();
+
+    // ✅ Auth check
     const cookieStore = await cookies();
     const token = cookieStore.get('auth-token')?.value;
+
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -44,16 +47,21 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
     }
 
+    // ✅ Params
     const { customerId } = await params;
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
-    const requestedPhone = normalizePhone(searchParams.get('phone'));
+
     if (!workspaceId) {
-      return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'workspaceId is required' },
+        { status: 400 }
+      );
     }
 
+    // ✅ Check ownership
     const ownedRows = await sql`
-      SELECT c.id, c.phone
+      SELECT c.id
       FROM customers c
       INNER JOIN workspaces ws ON c.workspace_id = ws.id
       WHERE c.id = ${customerId}
@@ -61,64 +69,46 @@ export async function GET(
         AND ws.owner_id = ${userId}
       LIMIT 1
     `;
+
     if (!ownedRows || ownedRows.length === 0) {
-      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Conversation not found' },
+        { status: 404 }
+      );
     }
 
-    const normalizedPhone = requestedPhone || normalizePhone(ownedRows[0].phone);
     const publicOrigin = getPublicOrigin(request);
     const readAt = new Date().toISOString();
 
+    // ✅ FIXED: Mark ONLY this customer's inbound messages as read
     const markedReadRows = await sql`
-      UPDATE messages m
+      UPDATE messages
       SET read_at = ${readAt}
-      FROM customers c
-      WHERE m.customer_id = c.id
-        AND m.workspace_id = ${workspaceId}
-        AND c.workspace_id = ${workspaceId}
-        AND m.direction = 'inbound'
-        AND m.read_at IS NULL
-        AND (
-          m.customer_id = ${customerId}
-          OR ${normalizedPhone || ''} = ''
-          OR replace(
-            regexp_replace(
-              regexp_replace(lower(COALESCE(c.phone, '')), '^whatsapp:', ''),
-              '[^0-9+]',
-              '',
-              'g'
-            ),
-            '+',
-            ''
-          ) = ${normalizedPhone || ''}
-        )
-      RETURNING m.id
+      WHERE workspace_id = ${workspaceId}
+        AND customer_id = ${customerId}
+        AND direction = 'inbound'
+        AND read_at IS NULL
+      RETURNING id
     `;
 
+    // ✅ FIXED: Fetch messages ONLY for this customer
     const rows = await sql`
-      SELECT m.id, m.content, m.media_url, m.direction, m.type, m.sent_at, m.read_at
-      FROM messages m
-      INNER JOIN customers c ON c.id = m.customer_id
-      WHERE m.workspace_id = ${workspaceId}
-        AND c.workspace_id = ${workspaceId}
-        AND (
-          m.customer_id = ${customerId}
-          OR ${normalizedPhone || ''} = ''
-          OR replace(
-            regexp_replace(
-              regexp_replace(lower(COALESCE(c.phone, '')), '^whatsapp:', ''),
-              '[^0-9+]',
-              '',
-              'g'
-            ),
-            '+',
-            ''
-          ) = ${normalizedPhone || ''}
-        )
-      ORDER BY m.sent_at DESC, m.id DESC
+      SELECT 
+        id,
+        content,
+        media_url,
+        direction,
+        type,
+        sent_at,
+        read_at
+      FROM messages
+      WHERE workspace_id = ${workspaceId}
+        AND customer_id = ${customerId}
+      ORDER BY sent_at DESC, id DESC
       LIMIT 150
     `;
 
+    // ✅ Real-time update
     if ((markedReadRows?.length || 0) > 0) {
       try {
         const unreadRows = await sql`
@@ -129,16 +119,21 @@ export async function GET(
             AND read_at IS NULL
         `;
 
-        await pusherServer.trigger(`workspace-${workspaceId}`, 'messages-read', {
-          customerId,
-          readCount: markedReadRows.length,
-          totalUnread: Number(unreadRows?.[0]?.total || 0),
-        });
-      } catch (pusherError) {
-        console.error('Failed to trigger read event:', pusherError);
+        await pusherServer.trigger(
+          `workspace-${workspaceId}`,
+          'messages-read',
+          {
+            customerId,
+            readCount: markedReadRows.length,
+            totalUnread: Number(unreadRows?.[0]?.total || 0),
+          }
+        );
+      } catch (err) {
+        console.error('Pusher error:', err);
       }
     }
 
+    // ✅ Response format
     const messages = rows.map((r: any) => ({
       id: r.id,
       content: r.content || '',
@@ -149,11 +144,19 @@ export async function GET(
       readAt: r.read_at || null,
     }));
 
-    return NextResponse.json({ success: true, messages });
+    return NextResponse.json({
+      success: true,
+      messages,
+    });
+
   } catch (error: any) {
     console.error('Thread messages fetch error:', error);
+
     return NextResponse.json(
-      { success: false, error: error.message || 'Internal server error' },
+      {
+        success: false,
+        error: error.message || 'Internal server error',
+      },
       { status: 500 }
     );
   }
