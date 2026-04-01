@@ -4,6 +4,7 @@ import { sql, ensureCoreSchema } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { mapInboundEvent } from '@/lib/bsp-webhook-mappers';
 import { isPushConfigured, sendPushToWorkspace } from '@/lib/push';
+import { getPublicOrigin, normalizePublicUrl } from '@/lib/public-url';
 
 interface RouteParams {
   params: Promise<{
@@ -15,6 +16,89 @@ const SHARED_WEBHOOK_TOKEN = process.env.BSP_WEBHOOK_TOKEN || '';
 const DEFAULT_PROVIDER = (process.env.BSP_DEFAULT_PROVIDER || 'generic').toLowerCase();
 const META_WEBHOOK_VERIFY_TOKEN = process.env.META_WEBHOOK_VERIFY_TOKEN || '';
 const INTERNAL_EXECUTION_TOKEN = process.env.INTERNAL_EXECUTION_TOKEN || '';
+
+function normalizeTextValue(value: unknown): string | null {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+function pickBookingValue(data: Record<string, any>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = normalizeTextValue(data?.[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+async function saveAppointmentBooking(input: {
+  workspaceId: string;
+  customerId: string | null;
+  phone: string;
+  flowId?: string | null;
+  flowToken?: string | null;
+  flowReply: Record<string, any>;
+}): Promise<string | null> {
+  const bookingDate = pickBookingValue(input.flowReply, [
+    'appointment_date',
+    'date',
+    'booking_date',
+    'preferred_date',
+  ]);
+  const bookingTime = pickBookingValue(input.flowReply, [
+    'appointment_time',
+    'time',
+    'booking_time',
+    'preferred_time',
+    'time_slot',
+  ]);
+  const service = pickBookingValue(input.flowReply, [
+    'service',
+    'appointment_type',
+    'service_type',
+    'reason',
+  ]);
+  const assignee = pickBookingValue(input.flowReply, [
+    'staff',
+    'advisor',
+    'representative',
+    'assignee',
+  ]);
+  const notes = pickBookingValue(input.flowReply, ['notes', 'note', 'comment', 'comments']);
+
+  const bookingRows = await sql`
+    INSERT INTO appointment_bookings (
+      id,
+      workspace_id,
+      customer_id,
+      phone,
+      flow_token,
+      flow_id,
+      booking_date,
+      booking_time,
+      service,
+      assignee,
+      notes,
+      details
+    )
+    VALUES (
+      ${uuidv4()},
+      ${input.workspaceId},
+      ${input.customerId},
+      ${input.phone},
+      ${input.flowToken || null},
+      ${input.flowId || null},
+      ${bookingDate},
+      ${bookingTime},
+      ${service},
+      ${assignee},
+      ${notes},
+      ${JSON.stringify(input.flowReply || {})}
+    )
+    RETURNING id
+  `;
+
+  return bookingRows?.[0]?.id ? String(bookingRows[0].id) : null;
+}
 
 function getTokenFromRequest(request: NextRequest): string {
   return (
@@ -94,6 +178,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await ensureCoreSchema();
     const { workspaceId } = await params;
     const provider = getProviderFromRequest(request);
+    const publicOrigin = getPublicOrigin(request);
 
     const requestToken = getTokenFromRequest(request);
     const requiresSharedToken = provider !== 'meta';
@@ -141,10 +226,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             ${0},
             ${'Duplicate webhook ignored'},
             ${JSON.stringify({
-          provider: normalized.provider,
-          externalMessageId: normalized.externalMessageId,
-          eventType: normalized.eventType,
-        })}
+              provider: normalized.provider,
+              externalMessageId: normalized.externalMessageId,
+              eventType: normalized.eventType,
+            })}
           FROM workflows w
           WHERE w.workspace_id = ${workspaceId} AND w.is_active = true
         `;
@@ -172,6 +257,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     let customerId: string | null = null;
     let messageId: string | null = null;
+    let appointmentBookingId: string | null = null;
 
     if (normalized.phone) {
       const customerRows = await sql`
@@ -181,9 +267,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${workspaceId},
           ${String(normalized.phone)},
           ${JSON.stringify({
-        provider: normalized.provider,
-        externalMessageId: normalized.externalMessageId || null,
-      })}
+            provider: normalized.provider,
+            externalMessageId: normalized.externalMessageId || null,
+          })}
         )
         ON CONFLICT (workspace_id, phone)
         DO UPDATE SET updated_at = CURRENT_TIMESTAMP
@@ -192,13 +278,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       customerId = customerRows?.[0]?.id || null;
     }
 
-    if (customerId && (normalized.message || normalized.mediaUrl)) {
+    if (customerId && normalized.phone && normalized.flowReply) {
+      appointmentBookingId = await saveAppointmentBooking({
+        workspaceId,
+        customerId,
+        phone: String(normalized.phone),
+        flowId: normalizeTextValue(normalized.flowReply?.flow_id),
+        flowToken: normalized.flowToken || normalizeTextValue(normalized.flowReply?.flow_token),
+        flowReply: normalized.flowReply,
+      });
+    }
+
+    if (customerId && (normalized.message || normalized.mediaUrl || normalized.flowReply)) {
       messageId = uuidv4();
 
-      const messageType = normalized.mediaUrl ? 'media' : 'text';
-      const content = normalized.message || null;
-      const mediaUrl = normalized.mediaUrl || null;
-      const sent_at = new Date().toISOString();
+      const normalizedEventType = String(normalized.eventType || '').trim().toLowerCase();
+      const messageType = normalized.flowReply
+        ? 'flow_response'
+        : normalized.mediaUrl
+          ? (['image', 'video', 'audio', 'document', 'sticker'].includes(normalizedEventType)
+              ? normalizedEventType
+              : 'media')
+          : 'text';
+      const content = normalized.message || (normalized.flowReply ? 'Submitted WhatsApp form' : null);
+      const mediaUrl = normalizePublicUrl(normalized.mediaUrl || null, publicOrigin);
+      const sentAt = new Date().toISOString();
 
       await sql`
         INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url, sent_at)
@@ -210,20 +314,33 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${messageType},
           ${content},
           ${mediaUrl},
-          ${sent_at}
+          ${sentAt}
         )
       `;
+
+      const unreadRows = await sql`
+        SELECT COUNT(*)::int AS total
+        FROM messages
+        WHERE workspace_id = ${workspaceId}
+          AND direction = 'inbound'
+          AND read_at IS NULL
+      `;
+      const unreadCount = Number(unreadRows?.[0]?.total || 0);
 
       try {
         await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
           id: messageId,
           customerId,
+          phone: String(normalized.phone || ''),
+          name: null,
+          source: normalized.provider,
           content: content || '',
-          mediaUrl: mediaUrl,
+          mediaUrl,
           direction: 'inbound',
           type: messageType,
-          sentAt: sent_at,
+          sentAt,
           readAt: null,
+          unreadCount,
         });
       } catch (err) {
         console.error('Failed to trigger Pusher event for inbound webhook:', err);
@@ -231,11 +348,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       try {
         if (isPushConfigured()) {
-          const notificationBody = normalized.message
-            ? String(normalized.message).slice(0, 140)
-            : normalized.mediaUrl
-              ? 'New media message'
-              : 'You received a new message';
+          const notificationBody = normalized.flowReply
+            ? 'New appointment form submitted'
+            : normalized.message
+              ? String(normalized.message).slice(0, 140)
+              : normalized.mediaUrl
+                ? 'New media message'
+                : 'You received a new message';
 
           await sendPushToWorkspace(workspaceId, {
             title: normalized.phone ? `New message from ${normalized.phone}` : 'New message',
@@ -244,6 +363,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             url: '/dashboard/messages',
             icon: '/icon-light-32x32.png',
             badge: '/icon-light-32x32.png',
+            unreadCount,
           });
         }
       } catch {
@@ -251,28 +371,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Background automation trigger for active workflows with supported inbound trigger nodes.
     try {
       if (INTERNAL_EXECUTION_TOKEN) {
         const baseUrl = request.nextUrl.origin || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
         const normalizedEventType = String(normalized.eventType || '').trim().toLowerCase();
-        const buttonReplyId =
-          (normalized.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive?.button_reply?.id) ||
-          (normalized.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive?.list_reply?.id) ||
-          (normalized.raw?.button_reply?.id) ||
-          (normalized.raw?.list_reply?.id) ||
-          '';
-        const buttonReplyTitle =
-          (normalized.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive?.button_reply?.title) ||
-          (normalized.raw?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.interactive?.list_reply?.title) ||
-          (normalized.raw?.button_reply?.title) ||
-          (normalized.raw?.list_reply?.title) ||
-          '';
-        const hasReplySignal = !!String(buttonReplyId || '').trim() || !!String(buttonReplyTitle || '').trim();
+        const buttonReplyId = String(normalized.buttonReplyId || '').trim();
+        const buttonReplyTitle = String(normalized.buttonReplyTitle || '').trim();
+        const hasReplySignal = !!buttonReplyId || !!buttonReplyTitle;
+        const hasFlowReplySignal = !!normalized.flowReply;
         const hasInboundMessageSignal =
           !!String(normalized.message || '').trim() ||
           !!String(normalized.mediaUrl || '').trim() ||
-          hasReplySignal;
+          hasReplySignal ||
+          hasFlowReplySignal;
         const isStatusOnlyEvent = ['sent', 'delivered', 'read', 'failed'].includes(normalizedEventType);
 
         if (!hasInboundMessageSignal || isStatusOnlyEvent) {
@@ -287,7 +398,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
 
-        if (hasReplySignal && normalized.phone) {
+        if ((hasReplySignal || hasFlowReplySignal) && normalized.phone) {
           const waits = await sql`
             SELECT id, workflow_id, node_id
             FROM workflow_wait_states
@@ -305,8 +416,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               variables: {
                 message: normalized.message || '',
                 mediaUrl: normalized.mediaUrl || '',
-                buttonReplyId: String(buttonReplyId || ''),
-                buttonReplyTitle: String(buttonReplyTitle || ''),
+                buttonReplyId,
+                buttonReplyTitle,
+                flowToken: String(normalized.flowToken || ''),
+                flowResponse: normalized.flowReply || null,
+                appointmentBookingId: appointmentBookingId || null,
                 resumeNodeId: String(wait.node_id || ''),
               },
             };
@@ -326,6 +440,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               eventId,
               customerId,
               messageId,
+              appointmentBookingId,
               provider: normalized.provider,
               normalized,
               resumedWorkflowId: wait.workflow_id,
@@ -369,8 +484,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               variables: {
                 message: normalized.message || '',
                 mediaUrl: normalized.mediaUrl || '',
-                buttonReplyId: String(buttonReplyId || ''),
-                buttonReplyTitle: String(buttonReplyTitle || ''),
+                buttonReplyId,
+                buttonReplyTitle,
+                flowToken: String(normalized.flowToken || ''),
+                flowResponse: normalized.flowReply || null,
+                appointmentBookingId: appointmentBookingId || null,
               },
             };
 
@@ -395,6 +513,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       eventId,
       customerId,
       messageId,
+      appointmentBookingId,
       provider: normalized.provider,
       normalized,
     });

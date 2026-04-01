@@ -308,46 +308,51 @@ export async function ensureCoreSchema(): Promise<void> {
       )
     `;
 
-    // Add force logout columns to users table if they don't exist
-    try {
-      await sql`
-        ALTER TABLE users
-        ADD COLUMN IF NOT EXISTS force_logout_at TIMESTAMP
-      `;
-    } catch {
-      // Column might already exist, continue
-    }
-
-    // Create system settings table for global force logout
     await sql`
-      CREATE TABLE IF NOT EXISTS system_settings (
+      CREATE TABLE IF NOT EXISTS appointment_bookings (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        setting_key VARCHAR(255) UNIQUE NOT NULL,
-        setting_value JSONB NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_by UUID
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+        phone VARCHAR(30),
+        flow_token VARCHAR(255),
+        flow_id VARCHAR(255),
+        booking_date VARCHAR(100),
+        booking_time VARCHAR(100),
+        service VARCHAR(255),
+        assignee VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'booked',
+        notes TEXT,
+        details JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
 
-    // Initialize global force_logout_at setting if it doesn't exist
-    try {
-      await sql`
-        INSERT INTO system_settings (setting_key, setting_value, updated_at)
-        VALUES ('force_logout_at', '{"timestamp": null}', CURRENT_TIMESTAMP)
-        ON CONFLICT (setting_key) DO NOTHING
-      `;
-    } catch {
-      // Setting might already exist, continue
-    }
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_appointment_bookings_workspace_phone
+      ON appointment_bookings(workspace_id, phone, created_at DESC)
+    `;
 
-    // Create index for faster lookups
-    try {
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_users_force_logout_at ON users(force_logout_at)
-      `;
-    } catch {
-      // Index might already exist, continue
-    }
+    await sql`
+      CREATE TABLE IF NOT EXISTS whatsapp_flows (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        flow_type VARCHAR(50) DEFAULT 'appointment',
+        cta_label VARCHAR(60) DEFAULT 'Book Now',
+        meta_flow_id VARCHAR(255),
+        is_active BOOLEAN DEFAULT true,
+        config JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_flows_workspace_updated
+      ON whatsapp_flows(workspace_id, updated_at DESC)
+    `;
   })();
 
   return coreSchemaInitPromise;

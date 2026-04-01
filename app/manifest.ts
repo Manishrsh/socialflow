@@ -14,20 +14,25 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ['business', 'productivity', 'communication'],
     icons: [
       {
-        src: '/icon-light-32x32.png',
-        sizes: '32x32',
+        src: '/icon-192x192.png',
+        sizes: '192x192',
         type: 'image/png',
+      },
+      {
+        src: '/icon-512x512.png',
+        sizes: '512x512',
+        type: 'image/png',
+      },
+      {
+        src: '/icon-maskable-512x512.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
       },
       {
         src: '/apple-icon.png',
         sizes: '180x180',
         type: 'image/png',
-      },
-      {
-        src: '/icon.svg',
-        sizes: 'any',
-        type: 'image/svg+xml',
-        purpose: 'any',
       },
     ],
     screenshots: [

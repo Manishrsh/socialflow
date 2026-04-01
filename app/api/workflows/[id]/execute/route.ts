@@ -9,7 +9,7 @@ import {
   queueOwnBspTemplateMessage,
   upsertOwnBspContact,
 } from '@/lib/own-bsp-service';
-
+import { pusherServer } from '@/lib/pusher';
 interface RouteParams {
   params: Promise<{
     id: string;
@@ -159,6 +159,51 @@ function normalizeKeywords(data: Record<string, any> | undefined): string[] {
   return singleKeyword ? [singleKeyword] : [];
 }
 
+function buildOutboundPreview(
+  data: Record<string, any>,
+  variables: Record<string, any> | undefined,
+  messageType: string
+): string | null {
+  const parts: string[] = [];
+  const header = String(data.header || '').trim();
+  const message = String(data.message || variables?.message || '').trim();
+  const footer = String(data.footer || '').trim();
+
+  if (header) parts.push(header);
+  if (message) parts.push(message);
+  if (footer) parts.push(footer);
+
+  if (messageType === 'interactive_button') {
+    const buttons = normalizeNodeButtons(data);
+    if (buttons.length > 0) {
+      parts.push(buttons.map((button) => button.title).join('\n'));
+    }
+  }
+
+  if (messageType === 'interactive_list') {
+    const rows = toArray(data.listRowsJson)
+      .map((row: any) => String(row?.title || '').trim())
+      .filter(Boolean);
+    if (rows.length > 0) {
+      parts.push(rows.join('\n'));
+    }
+  }
+
+  const preview = parts.join('\n\n').trim();
+  return preview || null;
+}
+
+function buildFlowPreview(data: Record<string, any>): string | null {
+  const parts = [
+    String(data.header || '').trim(),
+    String(data.message || '').trim(),
+    String(data.footer || '').trim(),
+    String(data.flowCta || '').trim(),
+  ].filter(Boolean);
+  const preview = parts.join('\n\n').trim();
+  return preview || 'WhatsApp Flow';
+}
+
 function getIncomingText(variables: Record<string, any> | undefined): string {
   return String(
     variables?.message ||
@@ -296,11 +341,12 @@ function resolveExecutionPath(
   let currentReplyId = String(variables?.buttonReplyId || variables?.buttonId || '').trim();
   let currentReplyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim();
   const hasReply = !!currentReplyId || !!currentReplyTitle;
+  const hasFlowResponse = !!variables?.flowResponse || !!variables?.flowToken || !!variables?.appointmentBookingId;
 
   const matchedStartNode = findMatchingStartNode(starters, variables);
   const fallbackStartNode = starters.length === 0 ? nodes[0] : null;
   const startNode =
-    (resumeNodeId && hasReply && nodeById.get(resumeNodeId)) || matchedStartNode || fallbackStartNode;
+    (resumeNodeId && (hasReply || hasFlowResponse) && nodeById.get(resumeNodeId)) || matchedStartNode || fallbackStartNode;
   if (!startNode) return [];
 
   const path: FlowNode[] = [];
@@ -374,7 +420,6 @@ function resolveExecutionPath(
         }
 
         if (target && nodeById.has(target)) {
-          // Resume mode: skip re-executing the interactive node and jump directly.
           if (resumeNodeId && node.id === resumeNodeId) {
             currentId = target;
             continue;
@@ -386,10 +431,21 @@ function resolveExecutionPath(
           continue;
         }
 
-        // This node is interactive, but the current reply does not belong to it.
-        // Do not fall through to a default outgoing edge; wait for this node's own click.
         path.push(node);
         break;
+      }
+    }
+
+    if (node.type === 'actionSendWhatsAppFlow') {
+      const next = outgoing.get(currentId) || [];
+      if (!hasFlowResponse) {
+        path.push(node);
+        break;
+      }
+
+      if (resumeNodeId && node.id === resumeNodeId) {
+        currentId = next[0] || null;
+        continue;
       }
     }
 
@@ -502,6 +558,58 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         throw new Error(`Main menu prompt failed on node ${node.id}: ${promptResult.error || 'Unknown error'}`);
       }
 
+      const promptCustomerRows = await sql`
+        INSERT INTO customers (id, workspace_id, phone, metadata)
+        VALUES (
+          ${randomUUID()},
+          ${workspaceId},
+          ${String(phone)},
+          ${JSON.stringify({ provider: 'own_bsp' })}
+        )
+        ON CONFLICT (workspace_id, phone)
+        DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+      `;
+      const promptCustomerId = promptCustomerRows?.[0]?.id;
+
+      if (promptCustomerId) {
+        const promptPreview = [promptText, buttonTitle].filter(Boolean).join('\n\n');
+        const promptMessages = await sql`
+          INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url)
+          VALUES (
+            ${randomUUID()},
+            ${workspaceId},
+            ${promptCustomerId},
+            ${'outbound'},
+            ${'interactive_button'},
+            ${promptPreview},
+            ${null}
+          )
+          RETURNING id, content, media_url, direction, type, sent_at, read_at
+        `;
+
+        const promptMessage = promptMessages?.[0];
+        if (promptMessage) {
+          try {
+            await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
+              id: promptMessage.id,
+              customerId: promptCustomerId,
+              phone: String(phone),
+              name: null,
+              source: 'whatsapp',
+              content: promptMessage.content || '',
+              mediaUrl: promptMessage.media_url || null,
+              direction: promptMessage.direction || 'outbound',
+              type: promptMessage.type || 'interactive_button',
+              sentAt: promptMessage.sent_at,
+              readAt: promptMessage.read_at || null,
+            });
+          } catch (error) {
+            console.error('Failed to trigger main menu prompt realtime event:', error);
+          }
+        }
+      }
+
       await sql`
         DELETE FROM workflow_wait_states
         WHERE workspace_id = ${workspaceId}
@@ -574,7 +682,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const customerId = customerRows?.[0]?.id;
         if (!customerId) return;
 
-        await sql`
+        const insertedRows = await sql`
           INSERT INTO messages (id, workspace_id, customer_id, direction, type, content, media_url)
           VALUES (
             ${randomUUID()},
@@ -585,7 +693,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             ${content},
             ${mediaUrl}
           )
+          RETURNING id, content, media_url, direction, type, sent_at, read_at
         `;
+
+        const newMsg = insertedRows?.[0];
+        if (!newMsg) return;
+
+        try {
+          await pusherServer.trigger(`workspace-${workspaceId}`, 'new-message', {
+            id: newMsg.id,
+            customerId,
+            phone: String(phone),
+            name: null,
+            source: 'whatsapp',
+            content: newMsg.content || '',
+            mediaUrl: newMsg.media_url || null,
+            direction: newMsg.direction || 'outbound',
+            type: newMsg.type || messageType,
+            sentAt: newMsg.sent_at,
+            readAt: newMsg.read_at || null,
+          });
+        } catch (error) {
+          console.error('Failed to trigger workflow message realtime event:', error);
+        }
       };
 
       if (type === 'actionSendMessage') {
@@ -620,7 +750,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             response: res,
           });
           await upsertCustomerAndLogOutbound(
-            data.message || variables?.message || null,
+            buildOutboundPreview(data, variables || {}, 'template'),
             null,
             'template'
           );
@@ -694,7 +824,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             response: res,
           });
           await upsertCustomerAndLogOutbound(
-            data.message || variables?.message || null,
+            buildOutboundPreview(data, variables || {}, finalMessageType),
             null,
             finalMessageType
           );
@@ -731,6 +861,70 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
       }
 
+      if (type === 'actionSendWhatsAppFlow') {
+        const flowId = String(data.flowId || '').trim();
+        if (!flowId) {
+          throw new Error(`WhatsApp Flow failed on node ${node.id}: Flow ID is required.`);
+        }
+
+        const flowAction = String(data.flowAction || 'navigate').trim().toLowerCase();
+        const res = await queueOwnBspMessage({
+          workspaceId,
+          channel: 'whatsapp',
+          recipient: String(phone),
+          message: data.message || '',
+          messageType: 'flow',
+          payload: {
+            header: data.header || null,
+            footer: data.footer || null,
+            flowId,
+            flowCta: data.flowCta || 'Book Now',
+            flowToken: data.flowToken || 'test_booking_001',
+            flowAction: 'navigate',
+            flowScreen: data.flowScreen || 'BOOKING_SCREEN',
+            flowDataJson: data.flowDataJson || JSON.stringify({ phone: String(phone) }),
+            bookAsAppointment: String(data.bookAsAppointment || 'yes').trim().toLowerCase(),
+            source: 'workflow',
+            workflowId: id,
+            nodeId: node.id,
+          },
+        });
+
+        if (!res.success) {
+          throw new Error(`WhatsApp Flow failed on node ${node.id}: ${res.error || 'Unknown error'}`);
+        }
+
+        log.push({
+          nodeId: node.id,
+          type,
+          status: 'queued_flow',
+          outboxId: res.outboxId || null,
+          response: res,
+        });
+
+        await upsertCustomerAndLogOutbound(
+          buildFlowPreview(data),
+          null,
+          'flow'
+        );
+
+        await sql`
+          DELETE FROM workflow_wait_states
+          WHERE workspace_id = ${workspaceId}
+            AND workflow_id = ${id}
+            AND phone = ${String(phone)}
+        `;
+        await sql`
+          INSERT INTO workflow_wait_states (workspace_id, workflow_id, node_id, phone, expires_at)
+          VALUES (
+            ${workspaceId},
+            ${id},
+            ${node.id},
+            ${String(phone)},
+            CURRENT_TIMESTAMP + INTERVAL '2 days'
+          )
+        `;
+      }
       if (type === 'actionSendMedia') {
         const mediaItems = normalizeMediaItems(data, variables || {});
         if (mediaItems.length === 0) {
@@ -804,7 +998,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const missingRouteDetails = {
         foundNodeTypes: allNodeTypes,
         foundActionNodeTypes: actionNodeTypes,
-        supportedActionNodeTypes: ['actionSendMessage', 'actionSendMedia', 'actionSaveContact'],
+        supportedActionNodeTypes: ['actionSendMessage', 'actionSendWhatsAppFlow', 'actionSendMedia', 'actionSaveContact'],
         ...(replyId || replyTitle
           ? {
               clickedOptionId: replyId || null,
@@ -881,3 +1075,4 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
   }
 }
+

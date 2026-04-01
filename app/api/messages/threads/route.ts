@@ -15,6 +15,14 @@ function parseMetadata(metadata: any): Record<string, any> {
   return metadata;
 }
 
+function normalizePhone(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .replace(/^whatsapp:/i, '')
+    .replace(/[^\d+]/g, '')
+    .replace(/^\+/, '');
+}
+
 export async function GET(request: NextRequest) {
   try {
     await ensureCoreSchema();
@@ -46,34 +54,41 @@ export async function GET(request: NextRequest) {
     }
 
     const rows = await sql`
-  SELECT
-    c.id AS customer_id,
-    c.name AS customer_name,
-    c.phone AS customer_phone,
-    c.metadata AS customer_metadata,
-    m.id AS message_id,
-    m.content,
-    m.media_url,
-    m.direction,
-    m.type,
-    m.sent_at
-  FROM customers c
-  LEFT JOIN LATERAL (
-    SELECT id, content, media_url, direction, type, sent_at
-    FROM messages
-    WHERE customer_id = c.id
-      AND workspace_id = ${workspaceId}
-    ORDER BY sent_at DESC, id DESC   -- ✅ ensures latest message
-    LIMIT 1
-  ) m ON true
-  WHERE c.workspace_id = ${workspaceId}
-  ORDER BY 
-    m.sent_at DESC NULLS LAST,       -- ✅ active chats first
-    c.created_at DESC                -- ✅ fallback if no messages
-  LIMIT 200                          -- ✅ latest 200 customers
-`;
+      SELECT
+        c.id AS customer_id,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        c.metadata AS customer_metadata,
+        COALESCE(unread.unread_count, 0) AS unread_count,
+        m.id AS message_id,
+        m.content,
+        m.media_url,
+        m.direction,
+        m.type,
+        m.sent_at
+      FROM customers c
+      LEFT JOIN LATERAL (
+        SELECT id, content, media_url, direction, type, sent_at
+        FROM messages
+        WHERE customer_id = c.id
+          AND workspace_id = ${workspaceId}
+        ORDER BY sent_at DESC, id DESC
+        LIMIT 1
+      ) m ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS unread_count
+        FROM messages
+        WHERE customer_id = c.id
+          AND workspace_id = ${workspaceId}
+          AND direction = 'inbound'
+          AND read_at IS NULL
+      ) unread ON true
+      WHERE c.workspace_id = ${workspaceId}
+      ORDER BY m.sent_at DESC NULLS LAST, c.created_at DESC
+      LIMIT 400
+    `;
 
-    let threads = rows.map((r: any) => {
+    const rawThreads = rows.map((r: any) => {
       const metadata = parseMetadata(r.customer_metadata);
       const source = String(metadata.provider || 'unknown').toLowerCase();
       return {
@@ -85,7 +100,32 @@ export async function GET(request: NextRequest) {
         lastMessageType: r.type || 'text',
         direction: r.direction || null,
         lastMessageAt: r.sent_at || null,
+        unreadCount: Number(r.unread_count || 0),
       };
+    });
+
+    const dedupedByPhone = new Map<string, (typeof rawThreads)[number]>();
+    for (const thread of rawThreads) {
+      const normalizedPhone = normalizePhone(thread.phone) || `customer:${thread.customerId}`;
+      const existing = dedupedByPhone.get(normalizedPhone);
+      if (!existing) {
+        dedupedByPhone.set(normalizedPhone, thread);
+        continue;
+      }
+
+      const existingTime = existing.lastMessageAt ? new Date(existing.lastMessageAt).getTime() : 0;
+      const currentTime = thread.lastMessageAt ? new Date(thread.lastMessageAt).getTime() : 0;
+      if (currentTime >= existingTime) {
+        dedupedByPhone.set(normalizedPhone, thread);
+      }
+    }
+
+    let threads = Array.from(dedupedByPhone.values()).sort((a, b) => {
+      const timeDiff =
+        (b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0) -
+        (a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0);
+      if (timeDiff !== 0) return timeDiff;
+      return a.name.localeCompare(b.name);
     });
 
     if (provider) {
@@ -101,7 +141,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true, threads });
+    const totalUnread = threads.reduce((sum, thread) => sum + Number(thread.unreadCount || 0), 0);
+
+    return NextResponse.json({ success: true, threads, totalUnread });
   } catch (error: any) {
     console.error('Threads fetch error:', error);
     return NextResponse.json(

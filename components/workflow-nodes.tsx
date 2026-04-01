@@ -208,6 +208,7 @@ export const nodeTypes = {
   triggerWebhook: TriggerNode,
   triggerSchedule: TriggerNode,
   actionSendMessage: ActionNode,
+  actionSendWhatsAppFlow: ActionNode,
   actionSendMedia: ActionNode,
   actionSaveContact: ActionNode,
   actionUpdateCustomer: ActionNode,

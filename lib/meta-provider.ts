@@ -21,12 +21,44 @@ interface MetaCredentials {
   graphApiVersion: string;
 }
 
+interface LocalFlowDefaults {
+  mode: 'draft' | 'published';
+  initialScreen?: string;
+}
+
 function nonEmpty(value: any): string {
   return String(value || '').trim();
 }
 
 function clamp(value: any, max: number): string {
   return nonEmpty(value).slice(0, max);
+}
+
+function parseFlowData(value: any): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value;
+  }
+  const text = nonEmpty(value);
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function randomFlowToken(flowId: string): string {
+  const seed = (flowId || 'flow').replace(/[^a-zA-Z0-9_-]/g, '').slice(-16) || 'flow';
+  return `${seed}_${Date.now().toString(36)}`.slice(0, 64);
+}
+
+function normalizeFlowToken(value: any, flowId: string): string {
+  const normalized = nonEmpty(value)
+    .replace(/[^a-zA-Z0-9_.-]/g, '_')
+    .slice(0, 64);
+  return normalized || randomFlowToken(flowId);
 }
 
 async function loadWorkspaceMetaCredentials(workspaceId: string): Promise<Partial<MetaCredentials>> {
@@ -66,6 +98,33 @@ async function resolveMetaCredentials(workspaceId: string): Promise<MetaCredenti
     instagramAccessToken:
       fromWorkspace.instagramAccessToken || nonEmpty(process.env.INSTAGRAM_ACCESS_TOKEN),
     graphApiVersion: nonEmpty(process.env.INSTAGRAM_GRAPH_API_VERSION || 'v23.0'),
+  };
+}
+
+async function loadLocalFlowDefaults(workspaceId: string, metaFlowId: string): Promise<LocalFlowDefaults | null> {
+  if (!workspaceId || !metaFlowId) return null;
+  await ensureCoreSchema();
+  const rows = await sql`
+    SELECT config
+    FROM whatsapp_flows
+    WHERE workspace_id = ${workspaceId}
+      AND meta_flow_id = ${metaFlowId}
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `;
+
+  const row = rows?.[0];
+  if (!row) return null;
+
+  const config =
+    typeof row.config === 'string'
+      ? JSON.parse(row.config || '{}')
+      : (row.config || {});
+  const screens = Array.isArray(config?.metaFlowJson?.screens) ? config.metaFlowJson.screens : [];
+  const initialScreen = nonEmpty(screens?.[0]?.id);
+  return {
+    mode: 'draft',
+    initialScreen: initialScreen || undefined,
   };
 }
 
@@ -124,6 +183,15 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
       const catalogId = nonEmpty(input.payload?.catalogId);
       const productRetailerId = nonEmpty(input.payload?.productRetailerId);
       const markReadMessageId = nonEmpty(input.payload?.messageIdToRead || input.payload?.messageId);
+      const flowId = nonEmpty(input.payload?.flowId);
+      const flowCta = clamp(input.payload?.flowCta || 'Book Now', 20);
+      const flowToken = clamp(input.payload?.flowToken || 'test_booking_001', 64);
+      const flowAction = nonEmpty(input.payload?.flowAction).toLowerCase();
+      const localFlowDefaults = messageType === 'flow' && flowId
+        ? await loadLocalFlowDefaults(input.workspaceId, flowId)
+        : null;
+      const flowScreen = nonEmpty(input.payload?.flowScreen || localFlowDefaults?.initialScreen);
+      const flowData = parseFlowData(input.payload?.flowDataJson);
 
       let body: any = {
         messaging_product: 'whatsapp',
@@ -135,6 +203,43 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
           messaging_product: 'whatsapp',
           status: 'read',
           message_id: markReadMessageId,
+        };
+      } else if (messageType === 'flow') {
+        if (!flowId) {
+          return { success: false, error: 'flowId is required for flow messages' };
+        }
+        const resolvedFlowAction = 'navigate';
+        const resolvedFlowData = Object.keys(flowData).length > 0
+          ? flowData
+          : { phone: nonEmpty(input.recipient) };
+        const resolvedScreen = flowScreen || 'BOOKING_SCREEN';
+        body = {
+          ...body,
+          type: 'interactive',
+          interactive: {
+            type: 'flow',
+            body: { text: clamp(text || 'Open the form to continue', 1024) },
+            ...(nonEmpty(input.payload?.header)
+              ? { header: { type: 'text', text: clamp(input.payload?.header, 60) } }
+              : {}),
+            ...(nonEmpty(input.payload?.footer)
+              ? { footer: { text: clamp(input.payload?.footer, 60) } }
+              : {}),
+            action: {
+              name: 'flow',
+              parameters: {
+                flow_message_version: '3',
+                flow_id: flowId,
+                flow_cta: flowCta,
+                flow_token: flowToken,
+                flow_action: resolvedFlowAction,
+                flow_action_payload: {
+                  screen: resolvedScreen,
+                  data: resolvedFlowData,
+                },
+              },
+            },
+          },
         };
       } else if (messageType === 'template' && templateName) {
         body = {

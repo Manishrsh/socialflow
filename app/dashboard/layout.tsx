@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { PwaInstallButton } from '@/components/pwa-install-button';
 import { MOBILE_TOPBAR_HIDDEN_KEY } from '@/lib/device-preferences';
+import { getPusherClient } from '@/lib/pusher-client';
 import {
   BarChart3,
   Bell,
@@ -24,6 +25,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   FileText,
+  CalendarRange,
 } from 'lucide-react';
 
 interface NavItem {
@@ -32,6 +34,8 @@ interface NavItem {
   icon: React.ReactNode;
   badge?: string;
 }
+
+const DEFAULT_APP_TITLE = 'WareChat Pro - WhatsApp Automation for Jewelry Shops';
 
 const fetcher = async (url: string) => {
   const response = await fetch(url, { cache: 'no-store' });
@@ -58,6 +62,7 @@ export default function DashboardLayout({
   const [isPushSubscribed, setIsPushSubscribed] = useState(false);
   const [isUpdatingPush, setIsUpdatingPush] = useState(false);
   const [hideMobileTopbar, setHideMobileTopbar] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     const savedState = window.localStorage.getItem('dashboard-sidebar-collapsed');
@@ -93,6 +98,7 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!workspace?.id || typeof window === 'undefined') {
+      setUnreadCount(0);
       return;
     }
 
@@ -100,10 +106,15 @@ export default function DashboardLayout({
 
     const syncPushState = async () => {
       try {
-        const config = await fetcher('/api/push/public-key');
+        const [config, unread] = await Promise.all([
+          fetcher('/api/push/public-key'),
+          fetcher(`/api/messages/unread-count?workspaceId=${workspace.id}`),
+        ]);
         if (cancelled) return;
+
         setPushConfigured(Boolean(config?.configured));
         setPushPublicKey(String(config?.publicKey || ''));
+        setUnreadCount(Number(unread?.unreadCount || 0));
 
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
           return;
@@ -130,6 +141,7 @@ export default function DashboardLayout({
           setPushConfigured(false);
           setPushPublicKey('');
           setIsPushSubscribed(false);
+          setUnreadCount(0);
         }
       }
     };
@@ -139,7 +151,66 @@ export default function DashboardLayout({
     return () => {
       cancelled = true;
     };
+  }, [workspace?.id, pathname]);
+
+  useEffect(() => {
+    if (!workspace?.id) return;
+
+    const pusherClient = getPusherClient();
+    if (!pusherClient) return;
+
+    const channelName = `workspace-${workspace.id}`;
+    const channel = pusherClient.subscribe(channelName);
+
+    const handleNewMessage = (data: any) => {
+      if (data?.direction !== 'inbound') return;
+      if (typeof data?.unreadCount === 'number') {
+        setUnreadCount(Math.max(0, Number(data.unreadCount)));
+        return;
+      }
+      setUnreadCount((current) => current + 1);
+    };
+
+    const handleMessagesRead = (data: any) => {
+      if (typeof data?.totalUnread === 'number') {
+        setUnreadCount(Math.max(0, Number(data.totalUnread)));
+        return;
+      }
+      if (typeof data?.readCount === 'number') {
+        setUnreadCount((current) => Math.max(0, current - Number(data.readCount)));
+      }
+    };
+
+    channel.bind('new-message', handleNewMessage);
+    channel.bind('messages-read', handleMessagesRead);
+
+    return () => {
+      channel.unbind('new-message', handleNewMessage);
+      channel.unbind('messages-read', handleMessagesRead);
+      channel.unsubscribe();
+    };
   }, [workspace?.id]);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = unreadCount > 0
+        ? `(${unreadCount > 99 ? '99+' : unreadCount}) WareChat`
+        : DEFAULT_APP_TITLE;
+    }
+
+    if (typeof navigator === 'undefined') return;
+
+    const appNavigator = navigator as Navigator & {
+      setAppBadge?: (count?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+
+    if (unreadCount > 0 && typeof appNavigator.setAppBadge === 'function') {
+      void appNavigator.setAppBadge(unreadCount).catch(() => {});
+    } else if (unreadCount === 0 && typeof appNavigator.clearAppBadge === 'function') {
+      void appNavigator.clearAppBadge().catch(() => {});
+    }
+  }, [unreadCount]);
 
   const navItems: NavItem[] = [
     {
@@ -152,6 +223,16 @@ export default function DashboardLayout({
       href: '/dashboard/automation',
       icon: <Zap className="w-5 h-5" />,
       badge: 'New',
+    },
+    {
+      name: 'WhatsApp Flows',
+      href: '/dashboard/whatsapp-flows',
+      icon: <CalendarRange className="w-5 h-5" />,
+    },
+    {
+      name: 'Flow Responses',
+      href: '/dashboard/flow-responses',
+      icon: <MessageSquare className="w-5 h-5" />,
     },
     {
       name: 'Broadcasts',
@@ -167,6 +248,7 @@ export default function DashboardLayout({
       name: 'Messages',
       href: '/dashboard/messages',
       icon: <MessageSquare className="w-5 h-5" />,
+      badge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : String(unreadCount)) : undefined,
     },
     {
       name: 'Templates',
@@ -297,7 +379,6 @@ export default function DashboardLayout({
 
   return (
     <div className="flex h-screen bg-background">
-      {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
@@ -305,14 +386,12 @@ export default function DashboardLayout({
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`fixed left-0 top-0 h-full bg-sidebar border-r border-sidebar-border transform transition-all duration-300 z-50 md:relative md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } ${sidebarCollapsed ? 'w-64 md:w-0 md:border-r-0 md:overflow-hidden' : 'w-64 md:w-64'
           }`}
       >
         <div className="flex flex-col h-full">
-          {/* Logo/Brand */}
           <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
@@ -328,13 +407,11 @@ export default function DashboardLayout({
             </button>
           </div>
 
-          {/* Workspace info */}
           <div className="p-4 border-b border-sidebar-border">
             <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wide">Workspace</p>
             <p className="text-sm font-semibold text-sidebar-foreground mt-1">{workspace?.name || 'My Workspace'}</p>
           </div>
 
-          {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-2">
             {navItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -363,7 +440,6 @@ export default function DashboardLayout({
             })}
           </nav>
 
-          {/* User section */}
           <div className="border-t border-sidebar-border p-4 space-y-3">
             <div>
               <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wide">Account</p>
@@ -383,9 +459,7 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar */}
         <header className="border-b border-border bg-background">
           <div className={`flex items-center justify-between px-4 py-4 ${hideMobileTopbar ? 'hidden md:flex' : ''}`}>
             <div className="flex items-center gap-2">
@@ -427,7 +501,6 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-auto">
           <div className={`p-6 transition-all duration-300 ${sidebarCollapsed ? 'w-full max-w-none' : 'max-w-7xl mx-auto'}`}>
             {children}
