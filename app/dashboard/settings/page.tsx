@@ -10,7 +10,8 @@ import {
   DEVICE_HOME_SCREEN_OPTIONS,
   MOBILE_TOPBAR_HIDDEN_KEY,
 } from '@/lib/device-preferences';
-import { Settings, Key, Bell, Lock } from 'lucide-react';
+import { Settings, Key, Bell, Lock, AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
 
 export default function SettingsPage() {
   const { user, workspace, setWorkspace } = useAuth();
@@ -280,6 +281,23 @@ export default function SettingsPage() {
             <span className="ml-2 font-medium">SaaS</span>
           </div>
         </div>
+      </Card>
+
+      {/* Admin Section */}
+      <Card className="p-6 border-red-500/20 bg-red-500/5">
+        <div className="flex items-start gap-3 mb-4">
+          <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5" />
+          <div>
+            <h3 className="font-semibold">System Administration</h3>
+            <p className="text-sm text-foreground/60 mt-1">Force logout all users (security emergency only)</p>
+          </div>
+        </div>
+        <Link href="/admin/force-logout">
+          <Button variant="destructive" className="gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            Force Logout Control
+          </Button>
+        </Link>
       </Card>
     </div>
   );

@@ -307,6 +307,47 @@ export async function ensureCoreSchema(): Promise<void> {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
+
+    // Add force logout columns to users table if they don't exist
+    try {
+      await sql`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS force_logout_at TIMESTAMP
+      `;
+    } catch {
+      // Column might already exist, continue
+    }
+
+    // Create system settings table for global force logout
+    await sql`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        setting_key VARCHAR(255) UNIQUE NOT NULL,
+        setting_value JSONB NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_by UUID
+      )
+    `;
+
+    // Initialize global force_logout_at setting if it doesn't exist
+    try {
+      await sql`
+        INSERT INTO system_settings (setting_key, setting_value, updated_at)
+        VALUES ('force_logout_at', '{"timestamp": null}', CURRENT_TIMESTAMP)
+        ON CONFLICT (setting_key) DO NOTHING
+      `;
+    } catch {
+      // Setting might already exist, continue
+    }
+
+    // Create index for faster lookups
+    try {
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_users_force_logout_at ON users(force_logout_at)
+      `;
+    } catch {
+      // Index might already exist, continue
+    }
   })();
 
   return coreSchemaInitPromise;
