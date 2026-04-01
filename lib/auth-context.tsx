@@ -41,6 +41,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const data = await response.json();
           setUser(data.user);
           setWorkspace(data.workspace);
+        } else if (response.status === 401) {
+          // User is not authenticated or token is invalid
+          console.log('[v0] User not authenticated or session expired');
+          setUser(null);
+          setWorkspace(null);
         }
       } catch (error) {
         console.error('[v0] Auth check failed:', error);

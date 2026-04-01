@@ -47,7 +47,43 @@ export async function createToken(payload: Omit<SessionPayload, 'iat' | 'exp'>):
 export async function verifyToken(token: string): Promise<SessionPayload | null> {
   try {
     const verified = await jwtVerify(token, SECRET_KEY);
-    return verified.payload as SessionPayload;
+    const payload = verified.payload as SessionPayload;
+    
+    // Check if user has been force logged out
+    if (payload.userId) {
+      const forceLogoutUser = await sql`
+        SELECT force_logout_at FROM users WHERE id = ${payload.userId}
+      `;
+      
+      if (forceLogoutUser.length > 0 && forceLogoutUser[0].force_logout_at) {
+        const forceLogoutTime = new Date(forceLogoutUser[0].force_logout_at).getTime() / 1000;
+        if (payload.iat < forceLogoutTime) {
+          // Token was issued before force logout, invalidate it
+          console.log('[v0] Token invalidated due to user force logout');
+          return null;
+        }
+      }
+      
+      // Check global force logout
+      try {
+        const globalSettings = await sql`
+          SELECT setting_value FROM system_settings WHERE setting_key = 'force_logout_at'
+        `;
+        
+        if (globalSettings.length > 0 && globalSettings[0].setting_value?.timestamp) {
+          const globalForceLogoutTime = new Date(globalSettings[0].setting_value.timestamp).getTime() / 1000;
+          if (payload.iat < globalForceLogoutTime) {
+            // Token was issued before global force logout, invalidate it
+            console.log('[v0] Token invalidated due to global force logout');
+            return null;
+          }
+        }
+      } catch {
+        // Global settings table might not exist yet, continue
+      }
+    }
+    
+    return payload;
   } catch (error) {
     return null;
   }
