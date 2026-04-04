@@ -3,68 +3,26 @@
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { HotLeadsCard } from '@/components/analytics/HotLeadsCard';
-import { SentimentGauge } from '@/components/analytics/SentimentGauge';
-import { AlertsPanel } from '@/components/analytics/AlertsPanel';
-import { ResponseTimeMetrics } from '@/components/analytics/ResponseTimeMetrics';
-import { TrendingUp, MessageSquare, Users, Clock, AlertCircle } from 'lucide-react';
+import { MessageSquare, Users, Clock } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 interface AnalyticsData {
   summary?: {
     total_messages: number;
-    total_conversations: number;
-    total_customers: number;
-    avg_conversation_length: number;
-    platform_breakdown: {
-      whatsapp: number;
-      sms: number;
-      instagram: number;
-      facebook: number;
-    };
+    incoming_messages: number;
+    outgoing_messages: number;
+    active_customers: number;
   };
-  sentiment?: {
-    overall: number;
-    breakdown: {
-      positive: number;
-      neutral: number;
-      negative: number;
-    };
-  };
-  hot_leads?: Array<{
-    id: string;
-    name: string;
-    phone: string;
-    intent_score: number;
-    message_count: number;
-    last_contact: string;
+  daily_trends?: Array<{
+    date: string;
+    total_messages: number;
+    incoming: number;
+    outgoing: number;
   }>;
-  alerts?: Array<{
+  message_type_breakdown?: Array<{
     type: string;
-    severity: string;
-    message: string;
-    timestamp: string;
+    count: number;
   }>;
-  response_metrics?: {
-    summary: {
-      avg_response_time: number;
-      median_response_time: number;
-      p95_response_time: number;
-      sla_compliance_rate: number;
-    };
-    distribution: {
-      under_1min: number;
-      '1_to_5min': number;
-      '5min_to_1hour': number;
-      'over_1hour': number;
-    };
-    daily_breakdown: Array<{
-      day: string;
-      avg_time: number;
-      message_count: number;
-    }>;
-  };
 }
 
 export default function AnalyticsDashboard() {
@@ -72,55 +30,30 @@ export default function AnalyticsDashboard() {
   const workspaceId = params.workspaceId as string;
   const [data, setData] = useState<AnalyticsData>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d'>('7d');
+  const [error, setError] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<7 | 30 | 90>(7);
 
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
         setIsLoading(true);
-        const token = localStorage.getItem('auth_token');
+        setError(null);
 
-        // Fetch all analytics in parallel
-        const [summaryRes, sentimentRes, leadsRes, alertsRes, responseRes] = await Promise.all([
-          fetch(`/api/analytics/summary?workspaceId=${workspaceId}&days=${dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`/api/analytics/sentiment?workspaceId=${workspaceId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`/api/analytics/customer-insights?workspaceId=${workspaceId}&limit=10`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`/api/analytics/alerts-config?workspaceId=${workspaceId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`/api/analytics/response-metrics?workspaceId=${workspaceId}&days=${dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
+        // Fetch summary analytics data
+        const summaryRes = await fetch(`/api/analytics/summary?workspaceId=${workspaceId}&days=${dateRange}`);
+        
+        if (!summaryRes.ok) {
+          throw new Error('Failed to fetch analytics');
+        }
 
-        const [summary, sentiment, leads, alerts, response] = await Promise.all([
-          summaryRes.json(),
-          sentimentRes.json(),
-          leadsRes.json(),
-          alertsRes.json(),
-          responseRes.json(),
-        ]);
+        const summary = await summaryRes.json();
 
         setData({
-          summary: summary.summary,
-          sentiment: sentiment.sentiment,
-          hot_leads: leads.customers?.filter((c: any) => c.intent_score > 0.6).slice(0, 5),
-          alerts: alerts.alerts?.map((a: any) => ({
-            type: a.type,
-            severity: a.severity,
-            message: a.message,
-            timestamp: a.updated_at,
-          })),
-          response_metrics: response,
+          summary: summary,
         });
       } catch (error) {
-        console.error('Failed to fetch analytics:', error);
+        console.error('[v0] Failed to fetch analytics:', error);
+        setError('Failed to load analytics data. Please try again.');
       } finally {
         setIsLoading(false);
       }
@@ -161,17 +94,24 @@ export default function AnalyticsDashboard() {
             <p className="text-foreground/60 mt-1">Real-time insights and performance metrics</p>
           </div>
           <div className="flex gap-2">
-            {(['7d', '30d', '90d'] as const).map((range) => (
+            {[7, 30, 90].map((days) => (
               <Button
-                key={range}
-                variant={dateRange === range ? 'default' : 'outline'}
-                onClick={() => setDateRange(range)}
+                key={days}
+                variant={dateRange === days ? 'default' : 'outline'}
+                onClick={() => setDateRange(days as 7 | 30 | 90)}
               >
-                {range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : '90 Days'}
+                {days} Days
               </Button>
             ))}
           </div>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <Card className="p-4 bg-red-50 border border-red-200 mb-6">
+            <p className="text-red-800">{error}</p>
+          </Card>
+        )}
 
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -179,109 +119,62 @@ export default function AnalyticsDashboard() {
             icon={MessageSquare}
             label="Total Messages"
             value={data.summary?.total_messages}
-            trend="↑ 12% from last period"
+            trend={data.summary?.incoming_messages ? `${data.summary.incoming_messages} incoming` : undefined}
           />
           <KPICard
             icon={Users}
-            label="Total Customers"
-            value={data.summary?.total_customers}
-            trend="↑ 8% new customers"
+            label="Active Customers"
+            value={data.summary?.active_customers}
+            trend="Unique conversations"
           />
           <KPICard
-            icon={Clock}
-            label="Avg Response Time"
-            value={data.response_metrics?.summary.avg_response_time ? 
-              `${Math.round(data.response_metrics.summary.avg_response_time / 60)}m` : 'N/A'}
+            icon={MessageSquare}
+            label="Incoming Messages"
+            value={data.summary?.incoming_messages}
           />
           <KPICard
-            icon={TrendingUp}
-            label="Intent Score"
-            value={data.sentiment?.overall ? `${Math.round(data.sentiment.overall * 100)}%` : 'N/A'}
+            icon={MessageSquare}
+            label="Outgoing Messages"
+            value={data.summary?.outgoing_messages}
           />
         </div>
 
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Sentiment Analysis */}
-          <div>
-            {data.sentiment ? (
-              <SentimentGauge
-                overall={data.sentiment.overall}
-                breakdown={data.sentiment.breakdown}
-                isLoading={isLoading}
-              />
-            ) : (
-              <Card className="p-6">
-                <p className="text-foreground/60">No sentiment data available</p>
-              </Card>
-            )}
-          </div>
-
-          {/* Platform Distribution */}
-          <Card className="p-6">
-            <h3 className="font-semibold mb-4">Platform Distribution</h3>
-            {data.summary?.platform_breakdown ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie
-                    data={[
-                      { name: 'WhatsApp', value: data.summary.platform_breakdown.whatsapp },
-                      { name: 'SMS', value: data.summary.platform_breakdown.sms },
-                      { name: 'Instagram', value: data.summary.platform_breakdown.instagram },
-                      { name: 'Facebook', value: data.summary.platform_breakdown.facebook },
-                    ]}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    <Cell fill="#3b82f6" />
-                    <Cell fill="#10b981" />
-                    <Cell fill="#f59e0b" />
-                    <Cell fill="#8b5cf6" />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-48 flex items-center justify-center text-foreground/60">
-                No data available
+        {/* Message Trends Chart */}
+        <Card className="p-6 mb-8">
+          <h3 className="font-semibold mb-4">Message Summary</h3>
+          {isLoading ? (
+            <div className="h-48 flex items-center justify-center text-foreground/60">
+              Loading...
+            </div>
+          ) : data.summary ? (
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-foreground/60 mb-1">Total</p>
+                <p className="text-2xl font-bold">{formatNumber(data.summary.total_messages)}</p>
               </div>
-            )}
-          </Card>
-
-          {/* Hot Leads */}
-          <div>
-            {data.hot_leads ? (
-              <HotLeadsCard leads={data.hot_leads} isLoading={isLoading} />
-            ) : (
-              <Card className="p-6">
-                <p className="text-foreground/60">No hot leads available</p>
-              </Card>
-            )}
-          </div>
-        </div>
-
-        {/* Response Time Metrics */}
-        {data.response_metrics && (
-          <div className="mb-8">
-            <ResponseTimeMetrics data={data.response_metrics} isLoading={isLoading} />
-          </div>
-        )}
-
-        {/* Alerts */}
-        <div className="mb-8">
-          {data.alerts ? (
-            <AlertsPanel alerts={data.alerts} isLoading={isLoading} />
+              <div>
+                <p className="text-sm text-foreground/60 mb-1">Incoming</p>
+                <p className="text-2xl font-bold text-blue-600">{formatNumber(data.summary.incoming_messages)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-foreground/60 mb-1">Outgoing</p>
+                <p className="text-2xl font-bold text-green-600">{formatNumber(data.summary.outgoing_messages)}</p>
+              </div>
+            </div>
           ) : (
-            <Card className="p-6 border-green-200 bg-green-50">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-green-600" />
-                <p className="text-sm font-medium text-green-800">All systems operating normally</p>
-              </div>
-            </Card>
+            <div className="h-48 flex items-center justify-center text-foreground/60">
+              No data available
+            </div>
           )}
-        </div>
+        </Card>
+
+        {/* Information Card */}
+        <Card className="p-6 bg-blue-50 border border-blue-200">
+          <h3 className="font-semibold mb-2 text-blue-900">Analytics Powered by Real Message Data</h3>
+          <p className="text-sm text-blue-800">
+            Your analytics dashboard shows message statistics from your workspace. Advanced analytics like sentiment analysis, customer intent detection, and sales funnel tracking are available in the advanced dashboard when messages are processed with NLP.
+          </p>
+        </Card>
       </div>
     </main>
   );

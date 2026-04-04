@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
-    const period = Math.max(1, Math.min(365, Number(searchParams.get('period') || 30)));
+    const days = Math.max(1, Math.min(365, Number(searchParams.get('days') || searchParams.get('period') || 30)));
 
     if (!workspaceId) {
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     }
 
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() - period);
+    startDate.setDate(startDate.getDate() - days);
 
     const [
       customersRows,
