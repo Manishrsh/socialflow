@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MessageSquare, Users, Clock } from 'lucide-react';
-import { useParams } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
 
 interface AnalyticsData {
   summary?: {
@@ -26,8 +26,8 @@ interface AnalyticsData {
 }
 
 export default function AnalyticsDashboard() {
-  const params = useParams();
-  const workspaceId = params.workspaceId as string;
+  const { workspace } = useAuth();
+  const workspaceId = workspace?.id;
   const [data, setData] = useState<AnalyticsData>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
