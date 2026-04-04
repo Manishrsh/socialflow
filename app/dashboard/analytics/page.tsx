@@ -43,13 +43,22 @@ export default function AnalyticsDashboard() {
         const summaryRes = await fetch(`/api/analytics/summary?workspaceId=${workspaceId}&days=${dateRange}`);
         
         if (!summaryRes.ok) {
-          throw new Error('Failed to fetch analytics');
+          throw new Error(`Failed to fetch analytics: ${summaryRes.status}`);
         }
 
-        const summary = await summaryRes.json();
+        const response = await summaryRes.json();
+
+        // API returns { summary: {...}, trend: [...], messageTypes: [...], ... }
+        // Extract the summary object
+        const summaryData = response.summary || {};
 
         setData({
-          summary: summary,
+          summary: {
+            total_messages: Number(summaryData.totalMessages || 0),
+            incoming_messages: Number(summaryData.incomingMessages || 0),
+            outgoing_messages: Number(summaryData.outgoingMessages || 0),
+            active_customers: Number(summaryData.activeCustomers || 0),
+          },
         });
       } catch (error) {
         console.error('[v0] Failed to fetch analytics:', error);
