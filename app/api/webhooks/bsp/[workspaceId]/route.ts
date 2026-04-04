@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { mapInboundEvent } from '@/lib/bsp-webhook-mappers';
 import { isPushConfigured, sendPushToWorkspace } from '@/lib/push';
 import { getPublicOrigin, normalizePublicUrl } from '@/lib/public-url';
+import { analyzeMessage, updateMessageWithAnalysis, updateKeywordFrequency, detectCustomerSegment } from '@/lib/nlp-engine';
 
 interface RouteParams {
   params: Promise<{
@@ -317,6 +318,34 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${sentAt}
         )
       `;
+
+      // Process message with NLP engine in background
+      if (content) {
+        try {
+          const hasImage = mediaUrl && ['image', 'video', 'document'].includes(messageType);
+          const analysis = await analyzeMessage(content, hasImage);
+          await updateMessageWithAnalysis(messageId, analysis);
+          
+          // Update keyword frequency tracking
+          await updateKeywordFrequency(workspaceId, analysis.keywords, analysis.sentiment);
+          
+          // Detect and update customer segment asynchronously
+          setTimeout(async () => {
+            try {
+              const segment = await detectCustomerSegment(workspaceId, customerId);
+              await sql`
+                UPDATE customers
+                SET customer_segment = ${segment}
+                WHERE id = ${customerId}
+              `;
+            } catch (err) {
+              console.error('[NLP] Error detecting customer segment:', err);
+            }
+          }, 0);
+        } catch (err) {
+          console.error('[NLP] Error analyzing message:', err);
+        }
+      }
 
       const unreadRows = await sql`
         SELECT COUNT(*)::int AS total
