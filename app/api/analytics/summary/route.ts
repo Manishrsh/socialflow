@@ -199,7 +199,7 @@ export async function GET(request: NextRequest) {
         workflowSuccessRate,
         deliveryRate,
         avgMessagesPerCustomer,
-        period,
+        days,
         peakHour: peakHour === undefined || peakHour === null ? null : `${String(peakHour).padStart(2, '0')}:00`,
       },
       trend: trendRows.map((row: any) => ({
