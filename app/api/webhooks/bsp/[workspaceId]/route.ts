@@ -347,6 +347,52 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
       }
 
+      // Trigger auto-messages for new customers
+      if (customerId) {
+        setTimeout(async () => {
+          try {
+            // Check if this is a new customer (first message)
+            const messageCount = await sql`
+              SELECT COUNT(*)::int AS count FROM messages 
+              WHERE customer_id = ${customerId}
+            `;
+
+            if (messageCount?.[0]?.count === 1) {
+              // This is the first message from this customer, trigger new_user rules
+              const autoRules = await sql`
+                SELECT * FROM auto_message_rules 
+                WHERE workspace_id = ${workspaceId} 
+                AND rule_type = 'new_users' 
+                AND enabled = true
+              `;
+
+              for (const rule of autoRules || []) {
+                const delayMs = (rule.delay_hours * 60 * 60 * 1000) + (rule.delay_minutes * 60 * 1000);
+                const scheduledAt = new Date(Date.now() + delayMs);
+
+                await sql`
+                  INSERT INTO scheduled_messages (
+                    id, workspace_id, customer_id, phone, message, scheduled_at, status, schedule_mode, created_at
+                  ) VALUES (
+                    ${uuidv4()},
+                    ${workspaceId},
+                    ${customerId},
+                    ${String(normalized.phone)},
+                    ${rule.message_template},
+                    ${scheduledAt.toISOString()},
+                    'pending',
+                    'fixed',
+                    CURRENT_TIMESTAMP
+                  )
+                `;
+              }
+            }
+          } catch (err) {
+            console.error('[v0] Auto-message trigger error:', err);
+          }
+        }, 0);
+      }
+
       const unreadRows = await sql`
         SELECT COUNT(*)::int AS total
         FROM messages

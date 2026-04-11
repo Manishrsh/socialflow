@@ -257,6 +257,11 @@ export default function DashboardLayout({
       icon: <Clock className="w-5 h-5" />,
     },
     {
+      name: 'Auto Messages',
+      href: '/dashboard/auto-messages',
+      icon: <Zap className="w-5 h-5" />,
+    },
+    {
       name: 'Templates',
       href: '/dashboard/templates',
       icon: <FileText className="w-5 h-5" />,
