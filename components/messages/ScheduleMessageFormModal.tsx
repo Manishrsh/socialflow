@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -37,9 +37,20 @@ export function ScheduleMessageFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const { data: customers = [] } = useSWR(
-    workspaceId ? `/api/customers?workspaceId=${workspaceId}` : null
+  const fetcher = async (url: string) => {
+    const response = await fetch(url);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to load customers');
+    }
+    return response.json();
+  };
+
+  const { data } = useSWR(
+    workspaceId ? `/api/customers/list?workspaceId=${workspaceId}` : null,
+    fetcher
   );
+  const customers = data?.customers || [];
 
   const minDateTime = new Date();
   minDateTime.setMinutes(minDateTime.getMinutes() + 1);

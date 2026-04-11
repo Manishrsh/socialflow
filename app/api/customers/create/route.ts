@@ -27,13 +27,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const workspaceResult = await sql`
+      SELECT id
+      FROM workspaces
+      WHERE id = ${workspaceId} AND owner_id = ${userId}
+      LIMIT 1
+    `;
+
+    if (!workspaceResult.length) {
+      return NextResponse.json({ error: 'Workspace not found or access denied' }, { status: 404 });
+    }
+
     const customerId = uuidv4();
 
-    await query(
-      `INSERT INTO customers (id, workspace_id, name, phone, email, tags)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [customerId, workspaceId, name, phone, email || null, tags]
-    );
+    await sql`
+      INSERT INTO customers (id, workspace_id, name, phone, email, tags)
+      VALUES (${customerId}, ${workspaceId}, ${name}, ${phone}, ${email || null}, ${tags})
+    `;
 
     return NextResponse.json(
       { customerId, message: 'Customer created successfully' },

@@ -25,39 +25,42 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const offset = (page - 1) * limit;
 
-    let sql = `SELECT c.* FROM customers c
-               INNER JOIN workspaces ws ON c.workspace_id = ws.id
-               WHERE ws.user_id = $1`;
+    let baseQuery = `
+      FROM customers c
+      INNER JOIN workspaces ws ON c.workspace_id = ws.id
+      WHERE ws.owner_id = $1
+    `;
     const params: any[] = [userId];
 
     if (workspaceId) {
-      sql += ` AND c.workspace_id = $${params.length + 1}`;
+      baseQuery += ` AND c.workspace_id = $${params.length + 1}`;
       params.push(workspaceId);
     }
 
     if (search) {
-      sql += ` AND (c.name ILIKE $${params.length + 1} OR c.phone ILIKE $${params.length + 1} OR c.email ILIKE $${params.length + 1})`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      const searchTerm = `%${search}%`;
+      baseQuery += ` AND (c.name ILIKE $${params.length + 1} OR c.phone ILIKE $${params.length + 1} OR c.email ILIKE $${params.length + 1})`;
+      params.push(searchTerm);
     }
 
     if (tag) {
-      sql += ` AND $${params.length + 1} = ANY(c.tags)`;
+      baseQuery += ` AND $${params.length + 1} = ANY(c.tags)`;
       params.push(tag);
     }
 
-    const countResult = await query(
-      sql.replace('SELECT c.*', 'SELECT COUNT(*) as count'),
+    const countResult = await sql.unsafe(
+      `SELECT COUNT(*)::int AS count ${baseQuery}`,
       params
     );
 
-    sql += ` ORDER BY c.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
-
-    const result = await query(sql, params);
+    const customers = await sql.unsafe(
+      `SELECT c.* ${baseQuery} ORDER BY c.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
 
     return NextResponse.json({
-      customers: result.rows,
-      total: parseInt(countResult.rows[0].count),
+      customers,
+      total: countResult[0]?.count || 0,
       page,
       limit,
     });
