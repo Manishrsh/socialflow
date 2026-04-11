@@ -548,11 +548,23 @@ export async function ensureCoreSchema(): Promise<void> {
         scheduled_at TIMESTAMP NOT NULL,
         status VARCHAR(50) DEFAULT 'pending',
         error_message TEXT,
+        schedule_mode VARCHAR(50) DEFAULT 'fixed',
+        delay_hours INTEGER,
+        delay_minutes INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_by UUID REFERENCES users(id)
       )
     `;
+
+    // Add new columns if table already exists
+    try {
+      await sql`ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS schedule_mode VARCHAR(50) DEFAULT 'fixed'`;
+      await sql`ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS delay_hours INTEGER`;
+      await sql`ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS delay_minutes INTEGER`;
+    } catch {
+      // Columns might already exist
+    }
 
     // Create indexes for scheduled messages
     await sql`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_workspace_status_time ON scheduled_messages(workspace_id, status, scheduled_at)`;

@@ -6,8 +6,9 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Clock, Trash2, Edit2, Search } from 'lucide-react';
+import { Clock, Trash2, Edit2, Search, Plus } from 'lucide-react';
 import useSWR from 'swr';
+import { ScheduleMessageFormModal } from '@/components/messages/ScheduleMessageFormModal';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
@@ -29,6 +30,7 @@ export default function ScheduledMessagesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'sent' | 'skipped' | 'cancelled'>('all');
   const [page, setPage] = useState(0);
+  const [formModalOpen, setFormModalOpen] = useState(false);
   const pageSize = 20;
 
   const { data, isLoading, mutate } = useSWR(
@@ -94,6 +96,10 @@ export default function ScheduledMessagesPage() {
             <p className="text-sm text-foreground/60">Manage messages scheduled to be sent later</p>
           </div>
         </div>
+        <Button onClick={() => setFormModalOpen(true)} className="gap-2">
+          <Plus className="h-4 w-4" />
+          New Message
+        </Button>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -240,6 +246,17 @@ export default function ScheduledMessagesPage() {
           )}
         </div>
       </div>
+
+      {/* Schedule Message Form Modal */}
+      <ScheduleMessageFormModal
+        open={formModalOpen}
+        onOpenChange={setFormModalOpen}
+        workspaceId={workspace?.id}
+        onSuccess={() => {
+          mutate();
+          setFormModalOpen(false);
+        }}
+      />
     </div>
   );
 }
