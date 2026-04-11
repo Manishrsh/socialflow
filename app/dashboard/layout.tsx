@@ -11,6 +11,7 @@ import { getPusherClient } from '@/lib/pusher-client';
 import {
   BarChart3,
   Bell,
+  Clock,
   MessageSquare,
   Users,
   Zap,
@@ -249,6 +250,16 @@ export default function DashboardLayout({
       href: '/dashboard/messages',
       icon: <MessageSquare className="w-5 h-5" />,
       badge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : String(unreadCount)) : undefined,
+    },
+    {
+      name: 'Scheduled Messages',
+      href: '/dashboard/scheduled-messages',
+      icon: <Clock className="w-5 h-5" />,
+    },
+    {
+      name: 'Auto Messages',
+      href: '/dashboard/auto-messages',
+      icon: <Zap className="w-5 h-5" />,
     },
     {
       name: 'Templates',

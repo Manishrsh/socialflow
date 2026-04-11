@@ -18,7 +18,8 @@ export async function POST(request: NextRequest) {
 
     console.log('[v0] Processing scheduled messages...');
 
-    // Get all pending messages that are due to be sent (scheduled_at <= now)
+    // Get all pending messages that are due to be sent
+    // For delay mode, calculate when they should be sent based on customer's last message
     const messagesReady = await sql`
       SELECT 
         sm.id,
@@ -27,10 +28,13 @@ export async function POST(request: NextRequest) {
         sm.phone,
         sm.message,
         sm.scheduled_at,
+        sm.schedule_mode,
+        sm.delay_hours,
+        sm.delay_minutes,
         c.last_user_message_at
       FROM scheduled_messages sm
       LEFT JOIN customers c ON sm.customer_id = c.id
-      WHERE sm.status = 'pending' AND sm.scheduled_at <= CURRENT_TIMESTAMP
+      WHERE sm.status = 'pending'
       ORDER BY sm.scheduled_at ASC
       LIMIT 100
     `;
@@ -46,10 +50,24 @@ export async function POST(request: NextRequest) {
         const lastUserMessageTime = msg.last_user_message_at ? new Date(msg.last_user_message_at) : null;
         const timeSinceLastMessage = lastUserMessageTime ? now.getTime() - lastUserMessageTime.getTime() : Infinity;
         
+        // For delay mode, calculate when the message should be sent
+        let shouldSendNow = false;
+        let actualScheduledTime = new Date(msg.scheduled_at);
+
+        if (msg.schedule_mode === 'delay' && lastUserMessageTime) {
+          // Calculate the actual scheduled time: last_message_time + delay
+          const delayMs = ((msg.delay_hours || 0) * 60 * 60 * 1000) + ((msg.delay_minutes || 0) * 60 * 1000);
+          actualScheduledTime = new Date(lastUserMessageTime.getTime() + delayMs);
+          shouldSendNow = now.getTime() >= actualScheduledTime.getTime();
+        } else {
+          // Fixed mode: check if scheduled_at has passed
+          shouldSendNow = now.getTime() >= actualScheduledTime.getTime();
+        }
+
         // Check if customer has been active within the last 24 hours
         const isWithin24Hours = timeSinceLastMessage < twentyFourHoursMs;
 
-        if (isWithin24Hours) {
+        if (shouldSendNow && isWithin24Hours) {
           // Send the message
           const messageId = uuidv4();
 

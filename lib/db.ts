@@ -548,11 +548,23 @@ export async function ensureCoreSchema(): Promise<void> {
         scheduled_at TIMESTAMP NOT NULL,
         status VARCHAR(50) DEFAULT 'pending',
         error_message TEXT,
+        schedule_mode VARCHAR(50) DEFAULT 'fixed',
+        delay_hours INTEGER,
+        delay_minutes INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_by UUID REFERENCES users(id)
       )
     `;
+
+    // Add new columns if table already exists
+    try {
+      await sql`ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS schedule_mode VARCHAR(50) DEFAULT 'fixed'`;
+      await sql`ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS delay_hours INTEGER`;
+      await sql`ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS delay_minutes INTEGER`;
+    } catch {
+      // Columns might already exist
+    }
 
     // Create indexes for scheduled messages
     await sql`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_workspace_status_time ON scheduled_messages(workspace_id, status, scheduled_at)`;
@@ -568,6 +580,25 @@ export async function ensureCoreSchema(): Promise<void> {
     }
 
     await sql`CREATE INDEX IF NOT EXISTS idx_customers_last_user_message ON customers(last_user_message_at DESC)`;
+
+    // Auto-message rules table
+    await sql`
+      CREATE TABLE IF NOT EXISTS auto_message_rules (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        rule_type VARCHAR(50) NOT NULL,
+        message_template TEXT NOT NULL,
+        delay_hours INTEGER DEFAULT 0,
+        delay_minutes INTEGER DEFAULT 0,
+        enabled BOOLEAN DEFAULT true,
+        created_by UUID REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    // Create index for auto message rules
+    await sql`CREATE INDEX IF NOT EXISTS idx_auto_message_rules_workspace_type ON auto_message_rules(workspace_id, rule_type, enabled)`;
   })();
 
   return coreSchemaInitPromise;
