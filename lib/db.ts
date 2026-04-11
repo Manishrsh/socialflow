@@ -536,6 +536,38 @@ export async function ensureCoreSchema(): Promise<void> {
 
     await sql`CREATE INDEX IF NOT EXISTS idx_staff_performance_workspace ON staff_performance(workspace_id)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_staff_performance_staff_date ON staff_performance(staff_id, metric_date DESC)`;
+
+    // Scheduled messages table
+    await sql`
+      CREATE TABLE IF NOT EXISTS scheduled_messages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        phone VARCHAR(20) NOT NULL,
+        message TEXT NOT NULL,
+        scheduled_at TIMESTAMP NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by UUID REFERENCES users(id)
+      )
+    `;
+
+    // Create indexes for scheduled messages
+    await sql`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_workspace_status_time ON scheduled_messages(workspace_id, status, scheduled_at)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_customer ON scheduled_messages(customer_id, status)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_workspace_created ON scheduled_messages(workspace_id, created_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_pending ON scheduled_messages(scheduled_at) WHERE status = 'pending'`;
+
+    // Add last_user_message_at column to customers table if it doesn't exist
+    try {
+      await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_user_message_at TIMESTAMP`;
+    } catch {
+      // Column might already exist
+    }
+
+    await sql`CREATE INDEX IF NOT EXISTS idx_customers_last_user_message ON customers(last_user_message_at DESC)`;
   })();
 
   return coreSchemaInitPromise;

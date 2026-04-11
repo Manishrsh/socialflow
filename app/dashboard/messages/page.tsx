@@ -14,6 +14,7 @@ import {
 import {
   ArrowLeft,
   CheckCheck,
+  Clock,
   Download,
   Image as ImageIcon,
   Instagram,
@@ -23,6 +24,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import useSWR from 'swr';
+import { ScheduleMessageModal } from '@/components/messages/ScheduleMessageModal';
 
 interface ThreadItem {
   customerId: string;
@@ -172,6 +174,7 @@ export default function MessagesPage() {
   const [isExportingThread, setIsExportingThread] = useState(false);
   const [showMobileThread, setShowMobileThread] = useState(false);
   const [localMessagesByCustomer, setLocalMessagesByCustomer] = useState<LocalMessagesByCustomer>({});
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const providerQuery = providerFilter === 'all' ? '' : `&provider=${providerFilter}`;
@@ -692,6 +695,14 @@ export default function MessagesPage() {
                   />
                   <button
                     type="button"
+                    onClick={() => setScheduleModalOpen(true)}
+                    title="Schedule message for later"
+                    className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Clock className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleSendReply}
                     disabled={isSendingReply || !replyText.trim()}
                     className="flex h-12 w-12 items-center justify-center rounded-full bg-[#128c7e] text-white transition hover:bg-[#0f7a6f] disabled:cursor-not-allowed disabled:opacity-50"
@@ -709,6 +720,19 @@ export default function MessagesPage() {
           )}
         </div>
       </div>
+
+      {/* Schedule Message Modal */}
+      {selectedCustomerId && (
+        <ScheduleMessageModal
+          open={scheduleModalOpen}
+          onOpenChange={setScheduleModalOpen}
+          customerId={selectedCustomerId}
+          onSuccess={(message) => {
+            // Optional: Show toast or notification
+            console.log('[v0] Message scheduled:', message);
+          }}
+        />
+      )}
     </div>
   );
 }
