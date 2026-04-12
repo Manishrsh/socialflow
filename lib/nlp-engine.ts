@@ -162,7 +162,7 @@ function classifyIntent(text: string): { intent: string; confidence: number } {
 
   // Sort by confidence and return top intent
   intents.sort((a, b) => b.score - a.score);
-  
+
   if (intents.length > 0) {
     const topIntent = intents[0];
     return { intent: topIntent.type, confidence: Math.round(topIntent.score * 100) / 100 };
@@ -253,10 +253,8 @@ export async function detectCustomerSegment(
     // Get customer message history
     const messages = await sql`
       SELECT
-        m.sentiment,
-        m.intent,
-        m.sent_at,
         COUNT(*) as total_messages,
+        MAX(m.sent_at) as sent_at,
         AVG(CASE WHEN m.sentiment = 'positive' THEN 1 WHEN m.sentiment = 'negative' THEN 0 ELSE 0.5 END) as avg_sentiment
       FROM messages m
       WHERE m.workspace_id = ${workspaceId} AND m.customer_id = ${customerId}
@@ -321,7 +319,7 @@ export async function updateKeywordFrequency(
         VALUES (${workspaceId}, ${keyword}, 1, ${sentiment}, NOW())
         ON CONFLICT (workspace_id, keyword)
         DO UPDATE SET
-          frequency = frequency + 1,
+          frequency = keyword_frequency.frequency + 1,
           sentiment = ${sentiment},
           last_seen = NOW()
       `;
@@ -379,8 +377,8 @@ export async function generateCustomerSummary(
     const sentiment = data.avg_sentiment > 0.6 ? 'positive' : data.avg_sentiment < 0.4 ? 'negative' : 'neutral';
 
     return `Customer has ${data.total_messages} messages (${data.inbound} inbound, ${data.outbound} outbound). ` +
-           `Overall sentiment is ${sentiment}. Interested in: ${data.intents || 'unknown'}. ` +
-           `Key topics: ${data.top_keywords || 'general inquiry'}.`;
+      `Overall sentiment is ${sentiment}. Interested in: ${data.intents || 'unknown'}. ` +
+      `Key topics: ${data.top_keywords || 'general inquiry'}.`;
   } catch (error) {
     console.error('[NLP] Failed to generate summary:', error);
     return 'Unable to generate summary';
