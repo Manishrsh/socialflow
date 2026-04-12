@@ -3,23 +3,23 @@ import { sql, ensureCoreSchema } from '@/lib/db';
 import { pusherServer } from '@/lib/pusher';
 import { v4 as uuidv4 } from 'uuid';
 
-// This endpoint is called by a cron job (Vercel Cron) every minute
-// It processes scheduled messages and checks user activity before sending
+// مشتر handler for GET & POST
+async function handler(request: NextRequest) {
+  console.log('[CRON] HIT');
 
-export async function POST(request: NextRequest) {
   try {
-    await ensureCoreSchema();
+    // ✅ Allow Vercel Cron + manual testing
+    const isCron = request.headers.get('x-vercel-cron');
+    const isDev = process.env.NODE_ENV === 'development';
 
-    // Verify this is a legitimate cron request (from Vercel)
-    const authHeader = request.headers.get('authorization');
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (!isCron && !isDev) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log('[v0] Processing scheduled messages...');
+    console.log('[CRON] Processing scheduled messages...');
 
-    // Get all pending messages that are due to be sent
-    // For delay mode, calculate when they should be sent based on customer's last message
+    await ensureCoreSchema();
+
     const messagesReady = await sql`
       SELECT 
         sm.id,
@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
         sm.schedule_mode,
         sm.delay_hours,
         sm.delay_minutes,
+        sm.created_at,
         c.last_user_message_at
       FROM scheduled_messages sm
       LEFT JOIN customers c ON sm.customer_id = c.id
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
       LIMIT 100
     `;
 
-    console.log(`[v0] Found ${messagesReady.length} messages to process`);
+    console.log(`[CRON] Found ${messagesReady.length} messages`);
 
     const processedMessages = [];
     const now = new Date();
@@ -47,31 +48,56 @@ export async function POST(request: NextRequest) {
 
     for (const msg of messagesReady) {
       try {
-        const lastUserMessageTime = msg.last_user_message_at ? new Date(msg.last_user_message_at) : null;
-        const timeSinceLastMessage = lastUserMessageTime ? now.getTime() - lastUserMessageTime.getTime() : Infinity;
-        
-        // For delay mode, calculate when the message should be sent
+        const createdAt = new Date(msg.created_at);
+        const messageAge = now.getTime() - createdAt.getTime();
+
+        // ✅ Expire after 24 hours
+        if (messageAge > twentyFourHoursMs) {
+          await sql`
+            UPDATE scheduled_messages
+            SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${msg.id}
+          `;
+          continue;
+        }
+
+        const lastUserMessageTime = msg.last_user_message_at
+          ? new Date(msg.last_user_message_at)
+          : null;
+
+        const timeSinceLastMessage = lastUserMessageTime
+          ? now.getTime() - lastUserMessageTime.getTime()
+          : Infinity;
+
         let shouldSendNow = false;
         let actualScheduledTime = new Date(msg.scheduled_at);
 
         if (msg.schedule_mode === 'delay' && lastUserMessageTime) {
-          // Calculate the actual scheduled time: last_message_time + delay
-          const delayMs = ((msg.delay_hours || 0) * 60 * 60 * 1000) + ((msg.delay_minutes || 0) * 60 * 1000);
-          actualScheduledTime = new Date(lastUserMessageTime.getTime() + delayMs);
-          shouldSendNow = now.getTime() >= actualScheduledTime.getTime();
+          const delayMs =
+            ((msg.delay_hours || 0) * 60 * 60 * 1000) +
+            ((msg.delay_minutes || 0) * 60 * 1000);
+
+          actualScheduledTime = new Date(
+            lastUserMessageTime.getTime() + delayMs
+          );
+
+          shouldSendNow = now >= actualScheduledTime;
         } else {
-          // Fixed mode: check if scheduled_at has passed
-          shouldSendNow = now.getTime() >= actualScheduledTime.getTime();
+          shouldSendNow = now >= actualScheduledTime;
         }
 
-        // Check if customer has been active within the last 24 hours
         const isWithin24Hours = timeSinceLastMessage < twentyFourHoursMs;
 
-        if (shouldSendNow && isWithin24Hours) {
-          // Send the message
+        // ✅ FIXED LOGIC
+        if (shouldSendNow) {
+          if (!isWithin24Hours) {
+            console.log(`[CRON] Waiting (user inactive) ${msg.id}`);
+            continue; // ⏳ wait, don’t skip
+          }
+
+          // 🚀 SEND MESSAGE
           const messageId = uuidv4();
 
-          // Insert message into messages table as outbound
           await sql`
             INSERT INTO messages (
               id, workspace_id, customer_id, direction, type, content, sent_at, created_at
@@ -87,14 +113,12 @@ export async function POST(request: NextRequest) {
             )
           `;
 
-          // Update scheduled message status to 'sent'
           await sql`
             UPDATE scheduled_messages
             SET status = 'sent', updated_at = CURRENT_TIMESTAMP
             WHERE id = ${msg.id}
           `;
 
-          // Notify workspace via Pusher for real-time update
           try {
             await pusherServer.trigger(
               `workspace-${msg.workspace_id}`,
@@ -108,50 +132,42 @@ export async function POST(request: NextRequest) {
               }
             );
           } catch (err) {
-            console.error('[v0] Pusher notification error:', err);
+            console.error('[CRON] Pusher error:', err);
           }
 
-          processedMessages.push({ id: msg.id, status: 'sent', phone: msg.phone });
-          console.log(`[v0] Sent scheduled message ${msg.id} to ${msg.phone}`);
-        } else {
-          // Customer not active within 24 hours - skip and mark as skipped
-          await sql`
-            UPDATE scheduled_messages
-            SET status = 'skipped', error_message = 'Customer not active within 24 hours', updated_at = CURRENT_TIMESTAMP
-            WHERE id = ${msg.id}
-          `;
-
-          processedMessages.push({ id: msg.id, status: 'skipped', phone: msg.phone });
-          console.log(`[v0] Skipped scheduled message ${msg.id} to ${msg.phone} (inactive customer)`);
+          processedMessages.push({ id: msg.id, status: 'sent' });
+          console.log(`[CRON] Sent ${msg.id}`);
         }
       } catch (error) {
-        console.error(`[v0] Error processing message ${msg.id}:`, error);
+        console.error(`[CRON] Error processing ${msg.id}`, error);
 
-        // Mark as error
         await sql`
           UPDATE scheduled_messages
-          SET status = 'skipped', error_message = ${String(error)}, updated_at = CURRENT_TIMESTAMP
+          SET status = 'error', error_message = ${String(error)}, updated_at = CURRENT_TIMESTAMP
           WHERE id = ${msg.id}
         `;
-
-        processedMessages.push({ id: msg.id, status: 'error', phone: msg.phone });
       }
     }
-
-    // Clean up old messages (older than 7 days)
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    await sql`
-      DELETE FROM scheduled_messages
-      WHERE created_at < ${sevenDaysAgo.toISOString()} AND status IN ('sent', 'skipped', 'cancelled')
-    `;
 
     return NextResponse.json({
       success: true,
       processed: processedMessages.length,
-      details: processedMessages,
     });
   } catch (error) {
-    console.error('[v0] Process scheduled messages error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[CRON ERROR]', error);
+
+    return NextResponse.json(
+      { error: String(error) },
+      { status: 500 }
+    );
   }
+}
+
+// ✅ Support BOTH methods
+export async function GET(request: NextRequest) {
+  return handler(request);
+}
+
+export async function POST(request: NextRequest) {
+  return handler(request);
 }

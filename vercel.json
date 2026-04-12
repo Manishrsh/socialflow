@@ -5,6 +5,14 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "framework": "nextjs",
+
+  "crons": [
+    {
+      "path": "/api/cron/process-scheduled-messages",
+      "schedule": "* * * * *"
+    }
+  ],
+
   "headers": [
     {
       "source": "/api/:path*",
@@ -20,6 +28,7 @@
       ]
     }
   ],
+
   "redirects": [
     {
       "source": "/docs",
