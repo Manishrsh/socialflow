@@ -227,10 +227,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             ${0},
             ${'Duplicate webhook ignored'},
             ${JSON.stringify({
-              provider: normalized.provider,
-              externalMessageId: normalized.externalMessageId,
-              eventType: normalized.eventType,
-            })}
+          provider: normalized.provider,
+          externalMessageId: normalized.externalMessageId,
+          eventType: normalized.eventType,
+        })}
           FROM workflows w
           WHERE w.workspace_id = ${workspaceId} AND w.is_active = true
         `;
@@ -268,9 +268,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${workspaceId},
           ${String(normalized.phone)},
           ${JSON.stringify({
-            provider: normalized.provider,
-            externalMessageId: normalized.externalMessageId || null,
-          })}
+        provider: normalized.provider,
+        externalMessageId: normalized.externalMessageId || null,
+      })}
         )
         ON CONFLICT (workspace_id, phone)
         DO UPDATE SET updated_at = CURRENT_TIMESTAMP
@@ -298,8 +298,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         ? 'flow_response'
         : normalized.mediaUrl
           ? (['image', 'video', 'audio', 'document', 'sticker'].includes(normalizedEventType)
-              ? normalizedEventType
-              : 'media')
+            ? normalizedEventType
+            : 'media')
           : 'text';
       const content = normalized.message || (normalized.flowReply ? 'Submitted WhatsApp form' : null);
       const mediaUrl = normalizePublicUrl(normalized.mediaUrl || null, publicOrigin);
@@ -334,10 +334,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           const hasImage = mediaUrl && ['image', 'video', 'document'].includes(messageType);
           const analysis = await analyzeMessage(content, hasImage);
           await updateMessageWithAnalysis(messageId, analysis);
-          
+
           // Update keyword frequency tracking
           await updateKeywordFrequency(workspaceId, analysis.keywords, analysis.sentiment);
-          
+
           // Detect and update customer segment asynchronously
           setTimeout(async () => {
             try {
@@ -358,53 +358,51 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       // Trigger auto-messages for new customers
       if (customerId) {
-        setTimeout(async () => {
-          try {
-            // Check if this is a new customer (first message)
-            const messageCount = await sql`
-              SELECT COUNT(*)::int AS count FROM messages 
-              WHERE customer_id = ${customerId}
-            `;
+        try {
+          // Check if this is a new customer (first message)
+          const messageCount = await sql`
+            SELECT COUNT(*)::int AS count FROM messages 
+            WHERE customer_id = ${customerId}
+          `;
 
-            const autoRules = await sql`
-              SELECT * FROM auto_message_rules 
-              WHERE workspace_id = ${workspaceId} 
-                AND enabled = true
-                AND (
-                  rule_type = 'all_customers'
-                  OR (rule_type = 'new_users' AND ${messageCount?.[0]?.count} = 1)
-                )
-            `;
+          const autoRules = await sql`
+            SELECT * FROM auto_message_rules 
+            WHERE workspace_id = ${workspaceId} 
+              AND enabled = true
+              AND (
+                rule_type = 'all_customers'
+                OR (rule_type = 'new_users' AND ${messageCount?.[0]?.count} = 1)
+              )
+          `;
 
-            for (const rule of autoRules || []) {
-              // Only schedule a new_users rule for the first customer message
-              if (rule.rule_type === 'new_users' && messageCount?.[0]?.count !== 1) {
-                continue;
-              }
-
-              const delayMs = ((rule.delay_hours || 0) * 60 * 60 * 1000) + ((rule.delay_minutes || 0) * 60 * 1000);
-              const scheduledAt = new Date(Date.now() + delayMs);
-
-              await sql`
-                INSERT INTO scheduled_messages (
-                  id, workspace_id, customer_id, phone, message, scheduled_at, status, schedule_mode, created_at
-                ) VALUES (
-                  ${uuidv4()},
-                  ${workspaceId},
-                  ${customerId},
-                  ${String(normalized.phone)},
-                  ${rule.message_template},
-                  ${scheduledAt.toISOString()},
-                  'pending',
-                  'fixed',
-                  CURRENT_TIMESTAMP
-                )
-              `;
+          for (const rule of autoRules || []) {
+            // Only schedule a new_users rule for the first customer message
+            if (rule.rule_type === 'new_users' && messageCount?.[0]?.count !== 1) {
+              continue;
             }
-          } catch (err) {
-            console.error('[v0] Auto-message trigger error:', err);
+
+            const delayMs = ((rule.delay_hours || 0) * 60 * 60 * 1000) + ((rule.delay_minutes || 0) * 60 * 1000);
+            const scheduledAt = new Date(Date.now() + delayMs);
+
+            await sql`
+              INSERT INTO scheduled_messages (
+                id, workspace_id, customer_id, phone, message, scheduled_at, status, schedule_mode, created_at
+              ) VALUES (
+                ${uuidv4()},
+                ${workspaceId},
+                ${customerId},
+                ${String(normalized.phone)},
+                ${rule.message_template},
+                ${scheduledAt.toISOString()},
+                'pending',
+                'fixed',
+                CURRENT_TIMESTAMP
+              )
+            `;
           }
-        }, 0);
+        } catch (err) {
+          console.error('[v0] Auto-message trigger error:', err);
+        }
       }
 
       const unreadRows = await sql`
