@@ -319,6 +319,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         )
       `;
 
+      // Track the customer's last inbound message time so delayed auto-messages can fire correctly
+      if (customerId) {
+        await sql`
+          UPDATE customers
+          SET last_user_message_at = ${sentAt}
+          WHERE id = ${customerId}
+        `;
+      }
+
       // Process message with NLP engine in background
       if (content) {
         try {
@@ -357,35 +366,40 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               WHERE customer_id = ${customerId}
             `;
 
-            if (messageCount?.[0]?.count === 1) {
-              // This is the first message from this customer, trigger new_user rules
-              const autoRules = await sql`
-                SELECT * FROM auto_message_rules 
-                WHERE workspace_id = ${workspaceId} 
-                AND rule_type = 'new_users' 
+            const autoRules = await sql`
+              SELECT * FROM auto_message_rules 
+              WHERE workspace_id = ${workspaceId} 
                 AND enabled = true
-              `;
+                AND (
+                  rule_type = 'all_customers'
+                  OR (rule_type = 'new_users' AND ${messageCount?.[0]?.count} = 1)
+                )
+            `;
 
-              for (const rule of autoRules || []) {
-                const delayMs = (rule.delay_hours * 60 * 60 * 1000) + (rule.delay_minutes * 60 * 1000);
-                const scheduledAt = new Date(Date.now() + delayMs);
-
-                await sql`
-                  INSERT INTO scheduled_messages (
-                    id, workspace_id, customer_id, phone, message, scheduled_at, status, schedule_mode, created_at
-                  ) VALUES (
-                    ${uuidv4()},
-                    ${workspaceId},
-                    ${customerId},
-                    ${String(normalized.phone)},
-                    ${rule.message_template},
-                    ${scheduledAt.toISOString()},
-                    'pending',
-                    'fixed',
-                    CURRENT_TIMESTAMP
-                  )
-                `;
+            for (const rule of autoRules || []) {
+              // Only schedule a new_users rule for the first customer message
+              if (rule.rule_type === 'new_users' && messageCount?.[0]?.count !== 1) {
+                continue;
               }
+
+              const delayMs = ((rule.delay_hours || 0) * 60 * 60 * 1000) + ((rule.delay_minutes || 0) * 60 * 1000);
+              const scheduledAt = new Date(Date.now() + delayMs);
+
+              await sql`
+                INSERT INTO scheduled_messages (
+                  id, workspace_id, customer_id, phone, message, scheduled_at, status, schedule_mode, created_at
+                ) VALUES (
+                  ${uuidv4()},
+                  ${workspaceId},
+                  ${customerId},
+                  ${String(normalized.phone)},
+                  ${rule.message_template},
+                  ${scheduledAt.toISOString()},
+                  'pending',
+                  'fixed',
+                  CURRENT_TIMESTAMP
+                )
+              `;
             }
           } catch (err) {
             console.error('[v0] Auto-message trigger error:', err);
