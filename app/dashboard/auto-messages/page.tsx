@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Clock, Plus, Trash2, Edit2 } from 'lucide-react';
 import useSWR from 'swr';
 
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
 interface AutoRule {
   id: string;
   rule_type: string;
@@ -28,7 +30,8 @@ export default function AutoMessagesPage() {
   });
 
   const { data, mutate, isLoading } = useSWR(
-    workspace?.id ? `/api/messages/auto-rules?workspaceId=${workspace.id}` : null
+    workspace?.id ? `/api/messages/auto-rules?workspaceId=${workspace.id}` : null,
+    fetcher
   );
 
   const rules = data?.rules || [];
