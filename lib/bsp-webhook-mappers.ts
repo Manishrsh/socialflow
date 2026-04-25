@@ -132,15 +132,29 @@ function map360dialog(body: any): Partial<NormalizedInboundEvent> {
 
 function mapInstagram(body: any): Partial<NormalizedInboundEvent> {
   // Meta Instagram Messaging webhooks are similar to WhatsApp Cloud webhooks.
-  const value = body?.entry?.[0]?.changes?.[0]?.value || {};
-  const msg = value?.messages?.[0] || {};
-  const contact = value?.contacts?.[0] || {};
+  const entry = body?.entry?.[0] || {};
+  const value = entry?.changes?.[0]?.value || {};
+  const msg =
+    value?.messages?.[0] ||
+    entry?.messaging?.[0]?.message ||
+    body?.messaging?.[0]?.message ||
+    {};
+  const contact = value?.contacts?.[0] || entry?.messaging?.[0]?.sender || body?.sender || {};
+  const recipient = entry?.messaging?.[0]?.recipient || body?.recipient || {};
 
   const phone = normalizePhone(
-    pickFirst(msg?.from, contact?.wa_id, body?.from, body?.sender?.id)
+    pickFirst(
+      msg?.from,
+      contact?.wa_id,
+      contact?.id,
+      body?.from,
+      body?.sender?.id,
+      recipient?.id
+    )
   );
   const message = pickFirst(
     msg?.text?.body,
+    msg?.text,
     msg?.button?.text,
     msg?.interactive?.button_reply?.title,
     body?.message?.text,
@@ -151,6 +165,7 @@ function mapInstagram(body: any): Partial<NormalizedInboundEvent> {
     msg?.video?.link,
     msg?.audio?.link,
     msg?.document?.link,
+    msg?.attachments?.[0]?.payload?.url,
     body?.attachments?.[0]?.payload?.url
   );
 
@@ -159,7 +174,7 @@ function mapInstagram(body: any): Partial<NormalizedInboundEvent> {
     phone,
     message: message ? String(message) : undefined,
     mediaUrl: mediaUrl ? String(mediaUrl) : undefined,
-    externalMessageId: pickFirst(msg?.id, body?.mid, body?.messageId),
+    externalMessageId: pickFirst(msg?.mid, msg?.id, body?.mid, body?.messageId),
   };
 }
 
