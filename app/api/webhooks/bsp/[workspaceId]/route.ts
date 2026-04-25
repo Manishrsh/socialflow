@@ -169,10 +169,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const hubChallenge = url.searchParams.get('hub.challenge');
   const hubVerifyToken = url.searchParams.get('hub.verify_token');
 
+  console.log('[Webhook BSP][GET] Verification request', {
+    workspaceId,
+    hubMode,
+    hasChallenge: !!hubChallenge,
+    provider: url.searchParams.get('provider') || null,
+  });
+
   if (hubMode === 'subscribe' && hubChallenge) {
     if (META_WEBHOOK_VERIFY_TOKEN && hubVerifyToken === META_WEBHOOK_VERIFY_TOKEN) {
+      console.log('[Webhook BSP][GET] Verification successful', { workspaceId });
       return new NextResponse(hubChallenge, { status: 200 });
     }
+    console.error('[Webhook BSP][GET] Verification failed', {
+      workspaceId,
+      hasConfiguredToken: !!META_WEBHOOK_VERIFY_TOKEN,
+      tokenMatched: !!META_WEBHOOK_VERIFY_TOKEN && hubVerifyToken === META_WEBHOOK_VERIFY_TOKEN,
+    });
     return new NextResponse('Invalid verify token', { status: 403 });
   }
 
@@ -195,10 +208,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { workspaceId } = await params;
     const provider = getProviderFromRequest(request);
     const publicOrigin = getPublicOrigin(request);
+    console.log('[Webhook BSP][POST] Incoming request', {
+      workspaceId,
+      provider,
+      url: request.nextUrl.toString(),
+      contentType: request.headers.get('content-type'),
+      hasAuthHeader: !!request.headers.get('authorization'),
+      hasWebhookToken: !!request.headers.get('x-webhook-token'),
+    });
 
     const requestToken = getTokenFromRequest(request);
     const requiresSharedToken = provider !== 'meta';
     if (requiresSharedToken && (!SHARED_WEBHOOK_TOKEN || requestToken !== SHARED_WEBHOOK_TOKEN)) {
+      console.error('[Webhook BSP][POST] Unauthorized webhook token', {
+        workspaceId,
+        provider,
+        requiresSharedToken,
+        hasSharedTokenConfigured: !!SHARED_WEBHOOK_TOKEN,
+        hasRequestToken: !!requestToken,
+      });
       return NextResponse.json({ error: 'Unauthorized webhook token' }, { status: 401 });
     }
 
@@ -210,8 +238,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = await parseWebhookBody(request);
+    console.log('[Webhook BSP][POST] Parsed webhook body', {
+      workspaceId,
+      provider,
+      object: body?.object || null,
+      messagingProduct:
+        body?.entry?.[0]?.changes?.[0]?.value?.messaging_product || body?.messaging_product || null,
+      eventKeys: Object.keys(body || {}),
+    });
     const inferredProvider = inferProviderFromBody(provider, body);
     const normalized = mapInboundEvent(inferredProvider, body);
+    console.log('[Webhook BSP][POST] Normalized inbound event', {
+      workspaceId,
+      provider,
+      inferredProvider,
+      normalizedProvider: normalized.provider,
+      eventType: normalized.eventType,
+      phone: normalized.phone || null,
+      externalMessageId: normalized.externalMessageId || null,
+      hasMessage: !!normalized.message,
+      hasMediaUrl: !!normalized.mediaUrl,
+      hasButtonReply: !!normalized.buttonReplyId || !!normalized.buttonReplyTitle,
+      hasFlowReply: !!normalized.flowReply,
+    });
 
     if (normalized.externalMessageId) {
       const dedupRows = await sql`
@@ -229,6 +278,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       `;
 
       if (!dedupRows || dedupRows.length === 0) {
+        console.warn('[Webhook BSP][POST] Duplicate webhook ignored', {
+          workspaceId,
+          provider: normalized.provider,
+          externalMessageId: normalized.externalMessageId,
+          eventType: normalized.eventType,
+        });
         await sql`
           INSERT INTO workflow_execution_logs (
             id, workspace_id, workflow_id, phone, trigger_source, status, executed_nodes, summary, details
@@ -261,6 +316,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const eventId = uuidv4();
+    console.log('[Webhook BSP][POST] Inserting webhook event', {
+      eventId,
+      workspaceId,
+      provider: normalized.provider,
+      eventType: normalized.eventType,
+    });
     await sql`
       INSERT INTO webhook_events (id, workspace_id, provider, event_type, payload)
       VALUES (
@@ -277,6 +338,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     let appointmentBookingId: string | null = null;
 
     if (normalized.phone) {
+      console.log('[Webhook BSP][POST] Upserting customer', {
+        workspaceId,
+        phone: String(normalized.phone),
+        provider: normalized.provider,
+      });
       const customerRows = await sql`
         INSERT INTO customers (id, workspace_id, phone, metadata)
         VALUES (
@@ -296,6 +362,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (customerId && normalized.phone && normalized.flowReply) {
+      console.log('[Webhook BSP][POST] Saving appointment booking', {
+        workspaceId,
+        customerId,
+        phone: String(normalized.phone),
+        flowId: normalizeTextValue(normalized.flowReply?.flow_id),
+      });
       appointmentBookingId = await saveAppointmentBooking({
         workspaceId,
         customerId,
@@ -334,6 +406,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ${sentAt}
         )
       `;
+      console.log('[Webhook BSP][POST] Stored inbound message', {
+        workspaceId,
+        customerId,
+        messageId,
+        phone: String(normalized.phone),
+        messageType,
+        hasContent: !!content,
+        hasMediaUrl: !!mediaUrl,
+      });
 
       // Track the customer's last inbound message time so delayed auto-messages can fire correctly
       if (customerId) {
@@ -347,6 +428,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // Process message with NLP engine in background
       if (content) {
         try {
+          console.log('[Webhook BSP][POST] Running NLP analysis', {
+            workspaceId,
+            customerId,
+            messageId,
+            hasImage: !!mediaUrl && ['image', 'video', 'document'].includes(messageType),
+          });
           const hasImage = !!mediaUrl && ['image', 'video', 'document'].includes(messageType);
           const analysis = await analyzeMessage(content, hasImage);
           await updateMessageWithAnalysis(messageId, analysis);
@@ -375,6 +462,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // Trigger auto-messages for new customers
       if (customerId) {
         try {
+          console.log('[Webhook BSP][POST] Checking auto-message rules', {
+            workspaceId,
+            customerId,
+            phone: String(normalized.phone),
+          });
           // Check if this is a new customer (first message)
           const messageCount = await sql`
             SELECT COUNT(*)::int AS count FROM messages 
@@ -415,6 +507,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 CURRENT_TIMESTAMP
               )
             `;
+            console.log('[Webhook BSP][POST] Scheduled auto-message rule', {
+              workspaceId,
+              customerId,
+              phone: String(normalized.phone),
+              ruleId: rule.id || null,
+              ruleType: rule.rule_type,
+              delayMs,
+              scheduledAt: scheduledAt.toISOString(),
+            });
           }
         } catch (err) {
           console.error('[v0] Auto-message trigger error:', err);
@@ -445,6 +546,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           readAt: null,
           unreadCount,
         });
+        console.log('[Webhook BSP][POST] Pusher inbound event sent', {
+          workspaceId,
+          customerId,
+          messageId,
+          provider: normalized.provider,
+          unreadCount,
+        });
       } catch (err) {
         console.error('Failed to trigger Pusher event for inbound webhook:', err);
       }
@@ -468,6 +576,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             badge: '/icon-light-32x32.png',
             unreadCount,
           });
+          console.log('[Webhook BSP][POST] Push notification sent', {
+            workspaceId,
+            customerId,
+            phone: String(normalized.phone || ''),
+            unreadCount,
+          });
         }
       } catch {
         // Do not block webhook processing on push delivery.
@@ -476,6 +590,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     try {
       if (INTERNAL_EXECUTION_TOKEN) {
+        console.log('[Webhook BSP][POST] Internal workflow trigger enabled', {
+          workspaceId,
+          provider: normalized.provider,
+          hasMessage: !!normalized.message,
+          hasMediaUrl: !!normalized.mediaUrl,
+          hasFlowReply: !!normalized.flowReply,
+          hasButtonReply: !!normalized.buttonReplyId || !!normalized.buttonReplyTitle,
+        });
         const baseUrl = request.nextUrl.origin || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
         const normalizedEventType = String(normalized.eventType || '').trim().toLowerCase();
         const buttonReplyId = String(normalized.buttonReplyId || '').trim();
@@ -491,6 +613,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const isStatusOnlyEvent = ['sent', 'delivered', 'read', 'failed'].includes(normalizedEventType);
 
         if (!hasInboundMessageSignal || isStatusOnlyEvent) {
+          console.log('[Webhook BSP][POST] Ignoring non-inbound event', {
+            workspaceId,
+            provider: normalized.provider,
+            eventType: normalized.eventType,
+            hasInboundMessageSignal,
+            isStatusOnlyEvent,
+          });
           return NextResponse.json({
             success: true,
             eventId,
@@ -515,6 +644,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
           const wait = waits?.[0];
           if (wait?.workflow_id) {
+            console.log('[Webhook BSP][POST] Resuming waiting workflow', {
+              workspaceId,
+              workflowId: wait.workflow_id,
+              nodeId: wait.node_id,
+              phone: String(normalized.phone),
+              provider: normalized.provider,
+            });
             const resumePayload = {
               phone: String(normalized.phone),
               variables: {
@@ -530,13 +666,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               },
             };
 
-            await fetch(`${baseUrl}/api/workflows/${wait.workflow_id}/execute`, {
+            const resumeResponse = await fetch(`${baseUrl}/api/workflows/${wait.workflow_id}/execute`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'x-internal-execution-token': INTERNAL_EXECUTION_TOKEN,
               },
               body: JSON.stringify(resumePayload),
+            });
+            console.log('[Webhook BSP][POST] Resume execution response', {
+              workspaceId,
+              workflowId: wait.workflow_id,
+              status: resumeResponse.status,
+              ok: resumeResponse.ok,
             });
 
             await sql`DELETE FROM workflow_wait_states WHERE id = ${wait.id}`;
@@ -598,6 +740,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               },
             };
 
+            console.log('[Webhook BSP][POST] Triggering workflow execution', {
+              workspaceId,
+              workflowId: wf.id,
+              phone: String(normalized.phone || ''),
+              provider: normalized.provider,
+              channel: normalized.provider === 'instagram' ? 'instagram' : 'whatsapp',
+              nodeCount: Array.isArray(wf.nodes) ? wf.nodes.length : undefined,
+            });
             return fetch(`${baseUrl}/api/workflows/${wf.id}/execute`, {
               method: 'POST',
               headers: {
@@ -605,10 +755,36 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 'x-internal-execution-token': INTERNAL_EXECUTION_TOKEN,
               },
               body: JSON.stringify(payload),
+            }).then(async (response) => {
+              let responseText = '';
+              try {
+                responseText = await response.text();
+              } catch {
+                responseText = '';
+              }
+              console.log('[Webhook BSP][POST] Workflow execution response', {
+                workspaceId,
+                workflowId: wf.id,
+                status: response.status,
+                ok: response.ok,
+                responseText: responseText.slice(0, 500),
+              });
+              return response;
             });
           });
 
-        await Promise.allSettled(workflowRuns);
+        const runResults = await Promise.allSettled(workflowRuns);
+        console.log('[Webhook BSP][POST] Workflow fan-out completed', {
+          workspaceId,
+          total: runResults.length,
+          fulfilled: runResults.filter((result) => result.status === 'fulfilled').length,
+          rejected: runResults.filter((result) => result.status === 'rejected').length,
+        });
+      } else {
+        console.warn('[Webhook BSP][POST] Workflow execution skipped because INTERNAL_EXECUTION_TOKEN is missing', {
+          workspaceId,
+          provider: normalized.provider,
+        });
       }
     } catch {
       // Non-blocking background trigger.

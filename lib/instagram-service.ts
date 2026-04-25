@@ -178,8 +178,22 @@ export async function sendInstagramMessage(input: {
     const businessAccountId = nonEmpty(input.credentials?.businessAccountId || IG_BUSINESS_ACCOUNT_ID);
     const accessToken = nonEmpty(input.credentials?.accessToken || IG_ACCESS_TOKEN);
     const graphApiVersion = nonEmpty(input.credentials?.graphApiVersion || IG_GRAPH_API_VERSION);
+    console.log('[Instagram Service] Preparing send', {
+      recipientId: nonEmpty(input.recipientId),
+      messageType: nonEmpty(input.messageType || 'text'),
+      hasMessage: !!nonEmpty(input.message),
+      hasMediaUrl: !!nonEmpty(input.mediaUrl),
+      hasPayload: !!input.payload,
+      hasBusinessAccountId: !!businessAccountId,
+      hasAccessToken: !!accessToken,
+      graphApiVersion,
+    });
 
     if (!businessAccountId || !accessToken) {
+      console.error('[Instagram Service] Missing Instagram credentials', {
+        hasBusinessAccountId: !!businessAccountId,
+        hasAccessToken: !!accessToken,
+      });
       return {
         success: false,
         error: 'Instagram API credentials are not configured',
@@ -258,6 +272,11 @@ export async function sendInstagramMessage(input: {
         timeout: IG_TIMEOUT_MS,
       }
     );
+    console.log('[Instagram Service] Send success', {
+      recipientId: nonEmpty(input.recipientId),
+      status: response.status,
+      messageId: response.data?.message_id || response.data?.id || null,
+    });
 
     return {
       success: true,
@@ -265,6 +284,13 @@ export async function sendInstagramMessage(input: {
       raw: response.data,
     };
   } catch (error: any) {
+    console.error('[Instagram Service] Send failed', {
+      recipientId: nonEmpty(input.recipientId),
+      messageType: nonEmpty(input.messageType || 'text'),
+      status: error?.response?.status || null,
+      error: error?.message || String(error),
+      responseData: error?.response?.data || null,
+    });
     return {
       success: false,
       error:

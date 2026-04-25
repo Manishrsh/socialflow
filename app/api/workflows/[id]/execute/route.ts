@@ -540,24 +540,49 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       !!process.env.INTERNAL_EXECUTION_TOKEN &&
       internalToken === process.env.INTERNAL_EXECUTION_TOKEN;
     let userId: string | null = null;
+    const { id } = await params;
+    console.log('[Workflow Execute] Incoming request', {
+      workflowId: id,
+      internalEnabled,
+      hasInternalTokenHeader: !!internalToken,
+    });
 
     if (!internalEnabled) {
       const cookieStore = await cookies();
       const authToken = cookieStore.get('auth-token')?.value;
 
       if (!authToken) {
+        console.error('Workflow trigger failed: unauthorized', {
+          workflowId: id,
+          reason: 'missing_auth_token',
+          internalEnabled,
+        });
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
       userId = await verifySession(authToken);
       if (!userId) {
+        console.error('Workflow trigger failed: unauthorized', {
+          workflowId: id,
+          reason: 'invalid_session',
+          internalEnabled,
+        });
         return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
       }
     }
 
-    const { id } = await params;
     const { phone, variables, channel } = await request.json();
     const outboundChannel = String(channel || 'whatsapp').trim().toLowerCase() === 'instagram' ? 'instagram' : 'whatsapp';
+    console.log('[Workflow Execute] Parsed payload', {
+      workflowId: id,
+      phone: String(phone || ''),
+      outboundChannel,
+      variableKeys: Object.keys(variables || {}),
+      hasButtonReplyId: !!variables?.buttonReplyId,
+      hasButtonReplyTitle: !!variables?.buttonReplyTitle,
+      hasFlowResponse: !!variables?.flowResponse,
+      hasResumeNodeId: !!variables?.resumeNodeId,
+    });
 
     if (!phone) {
       return NextResponse.json({ error: 'phone is required' }, { status: 400 });
@@ -577,6 +602,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         `;
 
     if (!workflows || workflows.length === 0) {
+      console.error('[Workflow Execute] Workflow not found', {
+        workflowId: id,
+        internalEnabled,
+        userId: userId || null,
+      });
       return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
     }
 
@@ -593,6 +623,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const log: Array<Record<string, any>> = [];
     let replyAlreadyConsumed = false;
     executionLogId = randomUUID();
+    console.log('[Workflow Execute] Workflow resolved', {
+      workflowId: id,
+      workspaceId,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      executionNodeCount: executionNodes.length,
+      executionNodeTypes: executionNodes.map((node) => node.type || ''),
+      internalEnabled,
+    });
 
     const enqueueMainMenuPrompt = async (node: FlowNode) => {
       const mainMenuTargetNodeId = getMainMenuTargetNodeId(node, nodeById);
@@ -725,6 +764,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         })}
       )
     `;
+    console.log('[Workflow Execute] Execution log started', {
+      workflowId: id,
+      workspaceId,
+      executionLogId,
+      phone: String(phone),
+      internalEnabled,
+    });
 
     for (const node of executionNodes) {
       const type = node.type || '';
@@ -735,6 +781,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         mediaUrl: string | null,
         messageType: string
       ) => {
+        console.log('[Workflow Execute] Queue outbound content', {
+          workflowId: id,
+          workspaceId,
+          phone: String(phone),
+          messageType,
+          hasContent: !!content,
+          hasMediaUrl: !!mediaUrl,
+          outboundChannel,
+        });
         const customerRows = await sql`
           INSERT INTO customers (id, workspace_id, phone, metadata)
           VALUES (
@@ -798,6 +853,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               : 'text');
 
         if (normalizedMessageType === 'template' && templateName) {
+          console.log('[Workflow Execute] Sending template message', {
+            workflowId: id,
+            nodeId: node.id,
+            phone: String(phone),
+            templateName,
+            outboundChannel,
+          });
           const res = await queueOwnBspTemplateMessage({
             workspaceId,
             channel: outboundChannel,
@@ -846,6 +908,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             throw new Error(
               `Message queue failed on node ${node.id}: Add at least one button/list option before sending.`
             );
+          }
+
+          if (finalMessageType === 'interactive_button' || finalMessageType === 'interactive_list') {
+            console.log('[Workflow Execute] Sending interactive message', {
+              workflowId: id,
+              nodeId: node.id,
+              phone: String(phone),
+              messageType: finalMessageType,
+              buttonCount: buttons.length,
+              outboundChannel,
+            });
+          } else {
+            console.log('[Workflow Execute] Sending plain text message', {
+              workflowId: id,
+              nodeId: node.id,
+              phone: String(phone),
+              outboundChannel,
+            });
           }
 
           const res = await queueOwnBspMessage({
@@ -930,6 +1010,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       if (type === 'actionSendWhatsAppFlow') {
+        console.log('[Workflow Execute] Sending flow message', {
+          workflowId: id,
+          nodeId: node.id,
+          phone: String(phone),
+          outboundChannel,
+        });
         const flowId = String(data.flowId || '').trim();
         if (!flowId) {
           throw new Error(`WhatsApp Flow failed on node ${node.id}: Flow ID is required.`);
@@ -999,6 +1085,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           throw new Error(`Media queue failed on node ${node.id}: Add at least one media item.`);
         }
 
+        console.log('[Workflow Execute] Sending media messages', {
+          workflowId: id,
+          nodeId: node.id,
+          phone: String(phone),
+          mediaCount: mediaItems.length,
+          outboundChannel,
+        });
+
         for (const [index, item] of mediaItems.entries()) {
           const mediaUrl = normalizeOutboundMediaUrl(String(item.mediaUrl || ''), publicBaseUrl);
           const mediaId = isLikelyMetaMediaId(item.metaMediaId) ? item.metaMediaId : null;
@@ -1042,6 +1136,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       if (type === 'actionSaveContact') {
+        console.log('[Workflow Execute] Saving contact', {
+          workflowId: id,
+          nodeId: node.id,
+          phone: String(phone),
+        });
         const res = await upsertOwnBspContact({
           workspaceId,
           phone: String(data.phone || phone),
@@ -1108,6 +1207,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${executionLogId}
     `;
+    console.log('[Workflow Execute] Execution completed', {
+      workflowId: id,
+      workspaceId,
+      executionLogId,
+      executedNodes: log.length,
+      status: 'completed',
+    });
 
     return NextResponse.json({
       success: true,
@@ -1116,6 +1222,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       log,
     });
   } catch (error: any) {
+    console.error('[Workflow Execute] Execution error', {
+      workflowId: String((await params).id),
+      executionLogId,
+      error: String(error?.message || error),
+    });
     if (executionLogId) {
       try {
         await sql`
