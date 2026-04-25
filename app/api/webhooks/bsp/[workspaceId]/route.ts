@@ -218,7 +218,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     const requestToken = getTokenFromRequest(request);
-    const requiresSharedToken = provider !== 'meta';
+    const requiresSharedToken = provider !== 'meta' && provider !== 'instagram';
     if (requiresSharedToken && (!SHARED_WEBHOOK_TOKEN || requestToken !== SHARED_WEBHOOK_TOKEN)) {
       console.error('[Webhook BSP][POST] Unauthorized webhook token', {
         workspaceId,
