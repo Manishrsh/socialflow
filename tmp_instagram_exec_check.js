@@ -11,45 +11,46 @@ async function main() {
     LIMIT 1
   `;
 
-  const igEvents = await sql`
-    SELECT id, workspace_id, provider, event_type, received_at, payload
+  const instagramEvents = await sql`
+    SELECT id, provider, event_type, received_at
     FROM webhook_events
     WHERE workspace_id = ${workflow[0]?.workspace_id || ''}
       AND provider = 'instagram'
     ORDER BY received_at DESC
-    LIMIT 20
+    LIMIT 5
   `;
 
-  const recentEvents = await sql`
-    SELECT id, workspace_id, provider, event_type, received_at, payload
-    FROM webhook_events
-    WHERE workspace_id = ${workflow[0]?.workspace_id || ''}
-    ORDER BY received_at DESC
-    LIMIT 20
+  const recentExecutionStats = await sql`
+    SELECT
+      COUNT(*)::int AS count,
+      MAX(created_at) AS latest
+    FROM workflow_execution_logs
+    WHERE workflow_id = ${workflowId}
+      AND created_at >= NOW() - INTERVAL '30 minutes'
   `;
 
-  const logs = await sql`
-    SELECT id, workspace_id, workflow_id, phone, trigger_source, status, executed_nodes, summary, details, created_at, updated_at
+  const recentExecutionLogs = await sql`
+    SELECT id, status, executed_nodes, summary, created_at
     FROM workflow_execution_logs
     WHERE workflow_id = ${workflowId}
     ORDER BY created_at DESC
-    LIMIT 20
+    LIMIT 8
   `;
 
-  const waits = await sql`
-    SELECT id, workspace_id, workflow_id, node_id, phone, created_at, expires_at
-    FROM workflow_wait_states
-    WHERE workflow_id = ${workflowId}
+  const recentOutbox = await sql`
+    SELECT id, channel, status, recipient, message_type, created_at, error
+    FROM own_bsp_outbox
+    WHERE workspace_id = ${workflow[0]?.workspace_id || ''}
     ORDER BY created_at DESC
-    LIMIT 20
+    LIMIT 8
   `;
 
   console.log(JSON.stringify({
     workflow: workflow[0] || null,
-    instagramEvents: igEvents,
-    recentEvents,
-    executionLogs: logs,
-    waitStates: waits,
+    instagramEvents,
+    recentExecutionStats: recentExecutionStats[0] || null,
+    recentExecutionLogs,
+    recentOutbox,
   }, null, 2));
 }
 

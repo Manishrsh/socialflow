@@ -619,6 +619,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             eventType: normalized.eventType,
             hasInboundMessageSignal,
             isStatusOnlyEvent,
+            reason: !hasInboundMessageSignal
+              ? 'missing_inbound_message_signal'
+              : 'status_event',
           });
           return NextResponse.json({
             success: true,
