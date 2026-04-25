@@ -204,7 +204,11 @@ export function mapInboundEvent(providerInput: string, body: any): NormalizedInb
       mapped = map360dialog(body);
       break;
     case 'meta':
-      mapped = map360dialog(body);
+      mapped = String(body?.entry?.[0]?.changes?.[0]?.value?.messaging_product || body?.messaging_product || '')
+        .trim()
+        .toLowerCase() === 'instagram'
+        ? mapInstagram(body)
+        : map360dialog(body);
       break;
     case 'instagram':
       mapped = mapInstagram(body);

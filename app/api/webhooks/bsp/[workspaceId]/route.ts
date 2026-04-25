@@ -119,6 +119,21 @@ function getProviderFromRequest(request: NextRequest): string {
   ).toLowerCase();
 }
 
+function inferProviderFromBody(provider: string, body: any): string {
+  const messagingProduct =
+    String(body?.entry?.[0]?.changes?.[0]?.value?.messaging_product || body?.messaging_product || '').trim().toLowerCase();
+
+  if (messagingProduct === 'instagram') {
+    return 'instagram';
+  }
+
+  if (messagingProduct === 'whatsapp_business_account' || messagingProduct === 'whatsapp') {
+    return 'meta';
+  }
+
+  return provider;
+}
+
 async function parseWebhookBody(request: NextRequest): Promise<any> {
   const contentType = request.headers.get('content-type') || '';
 
@@ -195,7 +210,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = await parseWebhookBody(request);
-    const normalized = mapInboundEvent(provider, body);
+    const inferredProvider = inferProviderFromBody(provider, body);
+    const normalized = mapInboundEvent(inferredProvider, body);
 
     if (normalized.externalMessageId) {
       const dedupRows = await sql`
