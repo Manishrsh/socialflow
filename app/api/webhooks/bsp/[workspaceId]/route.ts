@@ -218,17 +218,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     const requestToken = getTokenFromRequest(request);
-    const requiresSharedToken = provider !== 'meta' && provider !== 'instagram';
-    if (requiresSharedToken && (!SHARED_WEBHOOK_TOKEN || requestToken !== SHARED_WEBHOOK_TOKEN)) {
-      console.error('[Webhook BSP][POST] Unauthorized webhook token', {
-        workspaceId,
-        provider,
-        requiresSharedToken,
-        hasSharedTokenConfigured: !!SHARED_WEBHOOK_TOKEN,
-        hasRequestToken: !!requestToken,
-      });
-      return NextResponse.json({ error: 'Unauthorized webhook token' }, { status: 401 });
-    }
+    // const requiresSharedToken = provider !== 'meta' && provider !== 'instagram';
+    // if (requiresSharedToken && (!SHARED_WEBHOOK_TOKEN || requestToken !== SHARED_WEBHOOK_TOKEN)) {
+    //   console.error('[Webhook BSP][POST] Unauthorized webhook token', {
+    //     workspaceId,
+    //     provider,
+    //     requiresSharedToken,
+    //     hasSharedTokenConfigured: !!SHARED_WEBHOOK_TOKEN,
+    //     hasRequestToken: !!requestToken,
+    //   });
+    //   return NextResponse.json({ error: 'Unauthorized webhook token' }, { status: 401 });
+    // }
 
     const workspaces = await sql`
       SELECT id FROM workspaces WHERE id = ${workspaceId} LIMIT 1
