@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ensureCoreSchema, sql } from '@/lib/db';
+import { sendInstagramMessage } from '@/lib/instagram-service';
 
 type Channel = 'whatsapp' | 'instagram';
 
@@ -428,24 +429,28 @@ export async function sendViaMeta(input: MetaSendInput): Promise<{ success: bool
       };
     }
 
-    const url = `https://graph.facebook.com/${creds.graphApiVersion}/${creds.instagramBusinessAccountId}/messages`;
-    const resp = await axios.post(
-      url,
-      {
-        recipient: { id: nonEmpty(input.recipient) },
-        message: { text: nonEmpty(input.message) || 'Hello' },
+    const instagramResult = await sendInstagramMessage({
+      recipientId: nonEmpty(input.recipient),
+      message: input.message || null,
+      mediaUrl: input.mediaUrl || null,
+      mediaType: input.messageType || null,
+      messageType: input.messageType || null,
+      payload: input.payload || {},
+      credentials: {
+        businessAccountId: creds.instagramBusinessAccountId,
+        accessToken: creds.instagramAccessToken,
+        graphApiVersion: creds.graphApiVersion,
       },
-      {
-        timeout: 30000,
-        headers: {
-          Authorization: `Bearer ${creds.instagramAccessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    });
 
-    const messageId = String(resp.data?.message_id || resp.data?.id || '');
-    return { success: true, messageId: messageId || undefined };
+    if (!instagramResult.success) {
+      return {
+        success: false,
+        error: instagramResult.error || 'Meta Instagram send failed',
+      };
+    }
+
+    return { success: true, messageId: instagramResult.id || undefined };
   } catch (error: any) {
     const msg =
       error?.response?.data?.error?.message ||

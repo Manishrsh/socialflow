@@ -331,7 +331,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // Process message with NLP engine in background
       if (content) {
         try {
-          const hasImage = mediaUrl && ['image', 'video', 'document'].includes(messageType);
+          const hasImage = !!mediaUrl && ['image', 'video', 'document'].includes(messageType);
           const analysis = await analyzeMessage(content, hasImage);
           await updateMessageWithAnalysis(messageId, analysis);
 
@@ -464,10 +464,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const normalizedEventType = String(normalized.eventType || '').trim().toLowerCase();
         const buttonReplyId = String(normalized.buttonReplyId || '').trim();
         const buttonReplyTitle = String(normalized.buttonReplyTitle || '').trim();
+        const hasTextMessage = !!String(normalized.message || '').trim();
         const hasReplySignal = !!buttonReplyId || !!buttonReplyTitle;
         const hasFlowReplySignal = !!normalized.flowReply;
         const hasInboundMessageSignal =
-          !!String(normalized.message || '').trim() ||
+          hasTextMessage ||
           !!String(normalized.mediaUrl || '').trim() ||
           hasReplySignal ||
           hasFlowReplySignal;
@@ -485,7 +486,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
 
-        if ((hasReplySignal || hasFlowReplySignal) && normalized.phone) {
+        if ((hasReplySignal || hasFlowReplySignal || hasTextMessage) && normalized.phone) {
           const waits = await sql`
             SELECT id, workflow_id, node_id
             FROM workflow_wait_states
@@ -509,6 +510,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 flowResponse: normalized.flowReply || null,
                 appointmentBookingId: appointmentBookingId || null,
                 resumeNodeId: String(wait.node_id || ''),
+                channel: normalized.provider === 'instagram' ? 'instagram' : 'whatsapp',
               },
             };
 
@@ -576,6 +578,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 flowToken: String(normalized.flowToken || ''),
                 flowResponse: normalized.flowReply || null,
                 appointmentBookingId: appointmentBookingId || null,
+                channel: normalized.provider === 'instagram' ? 'instagram' : 'whatsapp',
               },
             };
 

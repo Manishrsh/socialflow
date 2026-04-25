@@ -65,6 +65,57 @@ function normalizeNodeButtons(data: Record<string, any>): Array<{ id: string; ti
     .filter((b) => b.id && b.title);
 }
 
+function normalizeChoiceText(value: any): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u2018\u2019']/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractChoiceIndex(value: any): number | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const digitOnly = raw.match(/^(\d{1,3})$/);
+  if (digitOnly) return Number(digitOnly[1]);
+  const prefixed = raw.match(/^(\d{1,3})\s*[\.\)\-:]\s*(.+)$/);
+  if (prefixed) return Number(prefixed[1]);
+  return null;
+}
+
+function resolveTextReplyToButtons(
+  buttons: Array<{ id: string; title: string }>,
+  messageText: any
+): { id: string; title: string } | null {
+  const raw = String(messageText || '').trim();
+  if (!raw || buttons.length === 0) return null;
+
+  const index = extractChoiceIndex(raw);
+  if (index !== null && index >= 1 && index <= buttons.length) {
+    return buttons[index - 1];
+  }
+
+  const stripped = raw.replace(/^\d{1,3}\s*[\.\)\-:]\s*/, '').trim();
+  const normalizedInput = normalizeChoiceText(stripped || raw);
+  if (!normalizedInput) return null;
+
+  const matched = buttons.find((button, idx) => {
+    const title = normalizeChoiceText(button.title);
+    const id = normalizeChoiceText(button.id);
+    return (
+      normalizedInput === String(idx + 1) ||
+      normalizedInput === title ||
+      normalizedInput === id ||
+      normalizedInput.includes(title) ||
+      title.includes(normalizedInput)
+    );
+  });
+
+  return matched || null;
+}
+
 function normalizeMediaItems(
   data: Record<string, any>,
   variables: Record<string, any> | undefined
@@ -103,9 +154,15 @@ function replyMatchesInteractiveNode(
 ): boolean {
   const replyId = String(variables?.buttonReplyId || variables?.buttonId || '').trim();
   const replyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim().toLowerCase();
-  if (!replyId && !replyTitle) return false;
 
   const buttons = normalizeNodeButtons(node.data || {});
+  const textReply = resolveTextReplyToButtons(buttons, variables?.message);
+  if (!replyId && !replyTitle && !textReply) return false;
+
+  if (textReply) {
+    return true;
+  }
+
   if (replyId && buttons.some((button) => String(button.id || '').trim() === replyId)) {
     return true;
   }
@@ -340,7 +397,8 @@ function resolveExecutionPath(
   const resumeNodeId = String(variables?.resumeNodeId || '').trim();
   let currentReplyId = String(variables?.buttonReplyId || variables?.buttonId || '').trim();
   let currentReplyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim();
-  const hasReply = !!currentReplyId || !!currentReplyTitle;
+  const hasTextReply = !!String(variables?.message || '').trim();
+  const hasReply = !!currentReplyId || !!currentReplyTitle || hasTextReply;
   const hasFlowResponse = !!variables?.flowResponse || !!variables?.flowToken || !!variables?.appointmentBookingId;
 
   const matchedStartNode = findMatchingStartNode(starters, variables);
@@ -390,6 +448,14 @@ function resolveExecutionPath(
 
       if (hasInteractiveChoice) {
         if (!currentReplyId && !currentReplyTitle) {
+          const textReply = resolveTextReplyToButtons(buttons, variables?.message);
+          if (textReply) {
+            currentReplyId = textReply.id;
+            currentReplyTitle = textReply.title;
+          }
+        }
+
+        if (!currentReplyId && !currentReplyTitle) {
           path.push(node);
           break; // Wait for user choice before moving to next node.
         }
@@ -411,7 +477,8 @@ function resolveExecutionPath(
         } else if (currentReplyId && routes[currentReplyId]) {
           target = String(routes[currentReplyId]);
         } else if (currentReplyTitle) {
-          const btn = buttons.find((b) => b.title.toLowerCase() === currentReplyTitle.toLowerCase());
+          const currentReplyTitleNorm = normalizeChoiceText(currentReplyTitle);
+          const btn = buttons.find((b) => normalizeChoiceText(b.title) === currentReplyTitleNorm);
           if (btn?.id && edgeButtonRoutes[btn.id]) {
             target = String(edgeButtonRoutes[btn.id]);
           } else if (btn?.id && routes[btn.id]) {
@@ -437,23 +504,23 @@ function resolveExecutionPath(
     }
 
     if (node.type === 'actionSendWhatsAppFlow') {
-      const next = outgoing.get(currentId) || [];
+      const nextIds: string[] = outgoing.get(currentId) || [];
       if (!hasFlowResponse) {
         path.push(node);
         break;
       }
 
       if (resumeNodeId && node.id === resumeNodeId) {
-        currentId = next[0] || null;
+        currentId = nextIds[0] || null;
         continue;
       }
     }
 
     path.push(node);
-    const next = outgoing.get(currentId) || [];
-    if (next.length === 0) break;
+    const nextIds: string[] = outgoing.get(currentId) || [];
+    if (nextIds.length === 0) break;
 
-    currentId = next[0];
+    currentId = nextIds[0];
   }
 
   return path.length > 0 ? path : resolveExecutionOrder(nodes, edges);
@@ -489,7 +556,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const { id } = await params;
-    const { phone, variables } = await request.json();
+    const { phone, variables, channel } = await request.json();
+    const outboundChannel = String(channel || 'whatsapp').trim().toLowerCase() === 'instagram' ? 'instagram' : 'whatsapp';
 
     if (!phone) {
       return NextResponse.json({ error: 'phone is required' }, { status: 400 });
@@ -537,7 +605,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       const promptResult = await queueOwnBspMessage({
         workspaceId,
-        channel: 'whatsapp',
+        channel: outboundChannel,
         recipient: String(phone),
         message: promptText,
         messageType: 'interactive_button',
@@ -596,7 +664,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               customerId: promptCustomerId,
               phone: String(phone),
               name: null,
-              source: 'whatsapp',
+              source: outboundChannel,
               content: promptMessage.content || '',
               mediaUrl: promptMessage.media_url || null,
               direction: promptMessage.direction || 'outbound',
@@ -705,7 +773,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             customerId,
             phone: String(phone),
             name: null,
-            source: 'whatsapp',
+            source: outboundChannel,
             content: newMsg.content || '',
             mediaUrl: newMsg.media_url || null,
             direction: newMsg.direction || 'outbound',
@@ -732,7 +800,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         if (normalizedMessageType === 'template' && templateName) {
           const res = await queueOwnBspTemplateMessage({
             workspaceId,
-            channel: 'whatsapp',
+            channel: outboundChannel,
             recipient: String(phone),
             templateName,
             templateLanguage: data.templateLanguage || 'en_US',
@@ -782,7 +850,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
           const res = await queueOwnBspMessage({
             workspaceId,
-            channel: 'whatsapp',
+            channel: outboundChannel,
             recipient: String(phone),
             message: data.message || variables?.message || '',
             messageType: finalMessageType,
@@ -870,7 +938,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const flowAction = String(data.flowAction || 'navigate').trim().toLowerCase();
         const res = await queueOwnBspMessage({
           workspaceId,
-          channel: 'whatsapp',
+          channel: outboundChannel,
           recipient: String(phone),
           message: data.message || '',
           messageType: 'flow',
@@ -938,7 +1006,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             item.caption || data.caption || data.message || variables?.message || `Media item ${index + 1}`;
           const res = await queueOwnBspMediaMessage({
             workspaceId,
-            channel: 'whatsapp',
+            channel: outboundChannel,
             recipient: String(phone),
             caption,
             mediaUrl,
