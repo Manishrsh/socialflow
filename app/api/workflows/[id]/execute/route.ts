@@ -618,6 +618,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const orderedNodes = resolveExecutionOrder(nodes, edges);
     const executionNodes = resolveExecutionPath(nodes, edges, variables || {});
+    const shouldStopAfterFirstAction =
+      !String(variables?.resumeNodeId || '').trim() &&
+      (executionNodes[0]?.type === 'triggerMessage' || executionNodes[0]?.type === 'triggerKeyword');
     const allNodeTypes = orderedNodes.map((n) => n.type || '');
     const actionNodeTypes = allNodeTypes.filter((t) => t.startsWith('action'));
     const log: Array<Record<string, any>> = [];
@@ -632,6 +635,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       executionNodeTypes: executionNodes.map((node) => node.type || ''),
       internalEnabled,
     });
+
+    const logOutboundRecipient = (context: {
+      nodeId: string;
+      messageType: string;
+      channel: string;
+      recipientId: string;
+      source: string;
+    }) => {
+      if (context.channel !== 'instagram') return;
+      console.log('[Workflow Execute] Instagram outbound recipient', {
+        workflowId: id,
+        workspaceId,
+        nodeId: context.nodeId,
+        messageType: context.messageType,
+        channel: context.channel,
+        recipientId: context.recipientId,
+        source: context.source,
+      });
+    };
 
     const enqueueMainMenuPrompt = async (node: FlowNode) => {
       const mainMenuTargetNodeId = getMainMenuTargetNodeId(node, nodeById);
@@ -852,13 +874,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               ? 'interactive_button'
               : 'text');
 
-        if (normalizedMessageType === 'template' && templateName) {
+      if (normalizedMessageType === 'template' && templateName) {
           console.log('[Workflow Execute] Sending template message', {
             workflowId: id,
             nodeId: node.id,
             phone: String(phone),
             templateName,
             outboundChannel,
+          });
+          logOutboundRecipient({
+            nodeId: node.id,
+            messageType: 'template',
+            channel: outboundChannel,
+            recipientId: String(phone),
+            source: 'workflow_template',
           });
           const res = await queueOwnBspTemplateMessage({
             workspaceId,
@@ -884,6 +913,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             null,
             'template'
           );
+          if (shouldStopAfterFirstAction) {
+            break;
+          }
           await enqueueMainMenuPrompt(node);
         } else {
           const buttons = normalizeNodeButtons(data);
@@ -927,6 +959,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               outboundChannel,
             });
           }
+          logOutboundRecipient({
+            nodeId: node.id,
+            messageType: finalMessageType,
+            channel: outboundChannel,
+            recipientId: String(phone),
+            source: 'workflow_message',
+          });
 
           const res = await queueOwnBspMessage({
             workspaceId,
@@ -999,9 +1038,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 ${id},
                 ${node.id},
                 ${String(phone)},
-                CURRENT_TIMESTAMP + INTERVAL '2 days'
+              CURRENT_TIMESTAMP + INTERVAL '2 days'
               )
             `;
+          }
+          if (shouldStopAfterFirstAction) {
+            break;
           }
           if (finalMessageType !== 'interactive_button' && finalMessageType !== 'interactive_list') {
             await enqueueMainMenuPrompt(node);
@@ -1015,6 +1057,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           nodeId: node.id,
           phone: String(phone),
           outboundChannel,
+        });
+        logOutboundRecipient({
+          nodeId: node.id,
+          messageType: 'flow',
+          channel: outboundChannel,
+          recipientId: String(phone),
+          source: 'workflow_flow',
         });
         const flowId = String(data.flowId || '').trim();
         if (!flowId) {
@@ -1078,6 +1127,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             CURRENT_TIMESTAMP + INTERVAL '2 days'
           )
         `;
+
+        if (shouldStopAfterFirstAction) {
+          break;
+        }
       }
       if (type === 'actionSendMedia') {
         const mediaItems = normalizeMediaItems(data, variables || {});
@@ -1132,6 +1185,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             'media'
           );
         }
+        if (shouldStopAfterFirstAction) {
+          break;
+        }
         await enqueueMainMenuPrompt(node);
       }
 
@@ -1151,6 +1207,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           throw new Error(`Contact save failed on node ${node.id}: ${res.error || 'Unknown error'}`);
         }
         log.push({ nodeId: node.id, type, status: 'saved_contact', response: res });
+        if (shouldStopAfterFirstAction) {
+          break;
+        }
         await enqueueMainMenuPrompt(node);
       }
     }

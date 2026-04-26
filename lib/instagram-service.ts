@@ -9,6 +9,10 @@ function nonEmpty(value: any): string {
   return String(value || '').trim();
 }
 
+function sanitizeSecret(value: any): string {
+  return nonEmpty(value).replace(/\s+/g, '');
+}
+
 function clamp(value: any, max: number): string {
   return nonEmpty(value).slice(0, max);
 }
@@ -175,8 +179,8 @@ export async function sendInstagramMessage(input: {
   };
 }): Promise<{ success: boolean; id?: string; error?: string; raw?: any }> {
   try {
-    const businessAccountId = nonEmpty(input.credentials?.businessAccountId || IG_BUSINESS_ACCOUNT_ID);
-    const accessToken = nonEmpty(input.credentials?.accessToken || IG_ACCESS_TOKEN);
+    const businessAccountId = sanitizeSecret(input.credentials?.businessAccountId || IG_BUSINESS_ACCOUNT_ID);
+    const accessToken = sanitizeSecret(input.credentials?.accessToken || IG_ACCESS_TOKEN);
     const graphApiVersion = nonEmpty(input.credentials?.graphApiVersion || IG_GRAPH_API_VERSION);
     console.log('[Instagram Service] Preparing send', {
       recipientId: nonEmpty(input.recipientId),
@@ -200,6 +204,7 @@ export async function sendInstagramMessage(input: {
       };
     }
 
+    // Instagram Messaging send uses the Instagram Graph endpoint with the IG-scoped recipient id.
     const url = `https://graph.instagram.com/${graphApiVersion}/me/messages`;
     const messageType = nonEmpty(input.messageType || 'text').toLowerCase();
     const text = nonEmpty(input.message);

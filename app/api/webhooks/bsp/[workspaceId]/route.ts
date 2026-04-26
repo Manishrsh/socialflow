@@ -238,6 +238,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = await parseWebhookBody(request);
+    const firstEntry = body?.entry?.[0] || {};
+    const firstMessaging = firstEntry?.messaging?.[0] || body?.messaging?.[0] || null;
+    const instagramDebug = {
+      senderId: String(firstMessaging?.sender?.id || body?.sender?.id || '').trim() || null,
+      recipientId: String(firstMessaging?.recipient?.id || body?.recipient?.id || '').trim() || null,
+      messageId:
+        String(
+          firstMessaging?.message?.mid ||
+            firstMessaging?.message?.id ||
+            body?.mid ||
+            body?.messageId ||
+            ''
+        ).trim() || null,
+    };
     console.log('[Webhook BSP][POST] Parsed webhook body', {
       workspaceId,
       provider,
@@ -247,6 +261,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       eventKeys: Object.keys(body || {}),
     });
     const inferredProvider = inferProviderFromBody(provider, body);
+    if (provider === 'instagram' || inferredProvider === 'instagram') {
+      console.log('[Webhook BSP][POST] Instagram reply recipient debug', {
+        workspaceId,
+        provider,
+        replyRecipientId: instagramDebug.senderId,
+        senderId: instagramDebug.senderId,
+        recipientId: instagramDebug.recipientId,
+        messageId: instagramDebug.messageId,
+        note: 'Use senderId as the reply recipient. recipientId is the business account side.',
+      });
+    }
     const normalized = mapInboundEvent(inferredProvider, body);
     console.log('[Webhook BSP][POST] Normalized inbound event', {
       workspaceId,

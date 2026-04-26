@@ -31,6 +31,10 @@ function nonEmpty(value: any): string {
   return String(value || '').trim();
 }
 
+function sanitizeSecret(value: any): string {
+  return nonEmpty(value).replace(/\s+/g, '');
+}
+
 function clamp(value: any, max: number): string {
   return nonEmpty(value).slice(0, max);
 }
@@ -90,14 +94,17 @@ async function resolveMetaCredentials(workspaceId: string): Promise<MetaCredenti
 
   return {
     whatsappPhoneNumberId:
-      fromWorkspace.whatsappPhoneNumberId || nonEmpty(process.env.META_WHATSAPP_PHONE_NUMBER_ID),
+      sanitizeSecret(fromWorkspace.whatsappPhoneNumberId) ||
+      sanitizeSecret(process.env.META_WHATSAPP_PHONE_NUMBER_ID),
     whatsappAccessToken:
-      fromWorkspace.whatsappAccessToken || nonEmpty(process.env.META_WHATSAPP_ACCESS_TOKEN),
+      sanitizeSecret(fromWorkspace.whatsappAccessToken) ||
+      sanitizeSecret(process.env.META_WHATSAPP_ACCESS_TOKEN),
     instagramBusinessAccountId:
-      fromWorkspace.instagramBusinessAccountId ||
-      nonEmpty(process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID),
+      sanitizeSecret(fromWorkspace.instagramBusinessAccountId) ||
+      sanitizeSecret(process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID),
     instagramAccessToken:
-      fromWorkspace.instagramAccessToken || nonEmpty(process.env.INSTAGRAM_ACCESS_TOKEN),
+      sanitizeSecret(fromWorkspace.instagramAccessToken) ||
+      sanitizeSecret(process.env.INSTAGRAM_ACCESS_TOKEN),
     graphApiVersion: nonEmpty(process.env.INSTAGRAM_GRAPH_API_VERSION || 'v23.0'),
   };
 }
