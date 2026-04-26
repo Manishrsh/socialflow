@@ -156,6 +156,7 @@ function mapInstagram(body: any): Partial<NormalizedInboundEvent> {
     msg?.text?.body,
     msg?.text,
     msg?.button?.text,
+    msg?.quick_reply?.title,
     msg?.interactive?.button_reply?.title,
     body?.message?.text,
     body?.message
@@ -174,6 +175,8 @@ function mapInstagram(body: any): Partial<NormalizedInboundEvent> {
     phone,
     message: message ? String(message) : undefined,
     mediaUrl: mediaUrl ? String(mediaUrl) : undefined,
+    buttonReplyId: pickFirst(msg?.quick_reply?.payload),
+    buttonReplyTitle: pickFirst(msg?.quick_reply?.title, msg?.text),
     externalMessageId: pickFirst(msg?.mid, msg?.id, body?.mid, body?.messageId),
   };
 }

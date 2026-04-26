@@ -93,6 +93,28 @@ function buildTemplateButtons(payload?: Record<string, any>): Array<{ type: stri
     .slice(0, 3);
 }
 
+function buildQuickReplies(payload?: Record<string, any>): Array<{ content_type: string; title: string; payload: string }> {
+  const buttonOptions = normalizeButtons(payload).map((button) => ({
+    title: button.title,
+    payload: button.id,
+  }));
+  const listOptions = normalizeListRows(payload).map((row) => ({
+    title: row.title,
+    payload: row.id,
+  }));
+
+  const options = buttonOptions.length > 0 ? buttonOptions : listOptions;
+
+  return options
+    .filter((option) => option.title && option.payload)
+    .slice(0, 13)
+    .map((option) => ({
+      content_type: 'text',
+      title: clamp(option.title, 20),
+      payload: clamp(option.payload, 256),
+    }));
+}
+
 function buildGenericTemplateElement(input: {
   message?: string | null;
   mediaUrl?: string | null;
@@ -224,14 +246,16 @@ export async function sendInstagramMessage(input: {
       mediaUrl: mediaUrl || null,
       payload: input.payload || {},
     });
+    const templateButtons = buildTemplateButtons(input.payload);
+    const quickReplies = buildQuickReplies(input.payload);
+    const isChoiceMessage = messageType === 'interactive_button' || messageType === 'interactive_list';
     const wantsTemplate =
       messageType === 'template' ||
       nonEmpty(input.payload?.templateType).toLowerCase() === 'generic' ||
       templateElements.length > 0 ||
-      messageType === 'interactive_button' ||
-      messageType === 'interactive_list' ||
+      templateButtons.length > 0 ||
       !!mediaUrl ||
-      normalizeButtons(input.payload).length > 0;
+      (isChoiceMessage && templateButtons.length > 0);
 
     if (wantsTemplate) {
       body.message = {
@@ -257,13 +281,36 @@ export async function sendInstagramMessage(input: {
         ...(text ? { text } : {}),
       };
     } else {
-      body.message = {
-        text: buildTextChoiceMessage({
-          message: text,
-          payload: input.payload || {},
+      if (isChoiceMessage && quickReplies.length > 0) {
+        console.log('[Instagram Service] Sending Instagram quick replies', {
+          recipientId: nonEmpty(input.recipientId),
           messageType,
-        }),
-      };
+          quickReplyCount: quickReplies.length,
+        });
+        body.message = {
+          text: buildTextChoiceMessage({
+            message: text,
+            payload: input.payload || {},
+            messageType,
+          }),
+          quick_replies: quickReplies,
+        };
+      } else {
+        if (isChoiceMessage) {
+          console.log('[Instagram Service] Falling back to text choices for Instagram buttons', {
+            recipientId: nonEmpty(input.recipientId),
+            messageType,
+            buttonCount: normalizeButtons(input.payload).length,
+          });
+        }
+        body.message = {
+          text: buildTextChoiceMessage({
+            message: text,
+            payload: input.payload || {},
+            messageType,
+          }),
+        };
+      }
     }
 
     const response = await axios.post(
