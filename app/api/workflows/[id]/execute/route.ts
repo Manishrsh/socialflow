@@ -572,11 +572,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const { phone, variables, channel } = await request.json();
-    const outboundChannel = String(channel || 'whatsapp').trim().toLowerCase() === 'instagram' ? 'instagram' : 'whatsapp';
+    const requestedChannel = String(channel || variables?.channel || 'whatsapp').trim().toLowerCase();
+    const outboundChannel = requestedChannel === 'instagram' ? 'instagram' : 'whatsapp';
     console.log('[Workflow Execute] Parsed payload', {
       workflowId: id,
       phone: String(phone || ''),
       outboundChannel,
+      requestedChannel,
       variableKeys: Object.keys(variables || {}),
       hasButtonReplyId: !!variables?.buttonReplyId,
       hasButtonReplyTitle: !!variables?.buttonReplyTitle,
