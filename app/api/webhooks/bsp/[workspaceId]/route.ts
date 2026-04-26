@@ -122,8 +122,14 @@ function getProviderFromRequest(request: NextRequest): string {
 function inferProviderFromBody(provider: string, body: any): string {
   const messagingProduct =
     String(body?.entry?.[0]?.changes?.[0]?.value?.messaging_product || body?.messaging_product || '').trim().toLowerCase();
+  const objectType = String(body?.object || '').trim().toLowerCase();
+  const hasInstagramMessagingShape = !!body?.entry?.[0]?.messaging?.length || !!body?.messaging?.length;
 
   if (messagingProduct === 'instagram') {
+    return 'instagram';
+  }
+
+  if (objectType === 'instagram' && hasInstagramMessagingShape) {
     return 'instagram';
   }
 
