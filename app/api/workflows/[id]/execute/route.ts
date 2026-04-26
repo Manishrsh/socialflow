@@ -552,7 +552,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const authToken = cookieStore.get('auth-token')?.value;
 
       if (!authToken) {
-        console.error('Workflow trigger failed: unauthorized', {
+        console.error('Workflow trigger failed: unauthorizeds', {
           workflowId: id,
           reason: 'missing_auth_token',
           internalEnabled,
@@ -780,10 +780,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         ${0},
         ${'Workflow execution started'},
         ${JSON.stringify({
-          variables: variables || {},
-          executionNodeIds: executionNodes.map((node) => node.id),
-          executionNodeTypes: executionNodes.map((node) => node.type || ''),
-        })}
+      variables: variables || {},
+      executionNodeIds: executionNodes.map((node) => node.id),
+      executionNodeTypes: executionNodes.map((node) => node.type || ''),
+    })}
       )
     `;
     console.log('[Workflow Execute] Execution log started', {
@@ -874,7 +874,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               ? 'interactive_button'
               : 'text');
 
-      if (normalizedMessageType === 'template' && templateName) {
+        if (normalizedMessageType === 'template' && templateName) {
           console.log('[Workflow Execute] Sending template message', {
             workflowId: id,
             nodeId: node.id,
@@ -926,11 +926,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           const listRowsJson =
             finalMessageType === 'interactive_list' && buttons.length > 0
               ? JSON.stringify(
-                  buttons.slice(0, 10).map((b, idx) => ({
-                    id: String(b.id || idx + 1),
-                    title: String(b.title || `Option ${idx + 1}`),
-                  }))
-                )
+                buttons.slice(0, 10).map((b, idx) => ({
+                  id: String(b.id || idx + 1),
+                  title: String(b.title || `Option ${idx + 1}`),
+                }))
+              )
               : (data.listRowsJson || null);
           if (
             (finalMessageType === 'interactive_button' || finalMessageType === 'interactive_list') &&
@@ -1227,9 +1227,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         supportedActionNodeTypes: ['actionSendMessage', 'actionSendWhatsAppFlow', 'actionSendMedia', 'actionSaveContact'],
         ...(replyId || replyTitle
           ? {
-              clickedOptionId: replyId || null,
-              clickedOptionTitle: replyTitle || null,
-            }
+            clickedOptionId: replyId || null,
+            clickedOptionTitle: replyTitle || null,
+          }
           : {}),
       };
       await sql`
@@ -1259,10 +1259,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         executed_nodes = ${log.length},
         summary = ${`Workflow executed successfully (${log.length} node${log.length === 1 ? '' : 's'})`},
         details = ${JSON.stringify({
-          log,
-          executionNodeIds: executionNodes.map((node) => node.id),
-          executionNodeTypes: executionNodes.map((node) => node.type || ''),
-        })},
+      log,
+      executionNodeIds: executionNodes.map((node) => node.id),
+      executionNodeTypes: executionNodes.map((node) => node.type || ''),
+    })},
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${executionLogId}
     `;
@@ -1294,9 +1294,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             status = ${'failed'},
             summary = ${String(error?.message || 'Failed to execute workflow')},
             details = ${JSON.stringify({
-              error: String(error?.message || 'Failed to execute workflow'),
-              stack: String(error?.stack || ''),
-            })},
+          error: String(error?.message || 'Failed to execute workflow'),
+          stack: String(error?.stack || ''),
+        })},
             updated_at = CURRENT_TIMESTAMP
           WHERE id = ${executionLogId}
         `;
