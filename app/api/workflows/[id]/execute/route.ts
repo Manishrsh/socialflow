@@ -93,10 +93,12 @@ function normalizeChoiceOptions(data: Record<string, any>): Array<{ id: string; 
 
 function normalizeChoiceText(value: any): string {
   return String(value || '')
+    .normalize('NFKC')
     .trim()
     .toLowerCase()
     .replace(/[\u2018\u2019']/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
+    // Keep letters/numbers from every script so Marathi/Hindi titles still match.
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
