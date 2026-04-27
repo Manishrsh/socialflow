@@ -5,12 +5,13 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import {
   DEVICE_HOME_SCREEN_KEY,
   DEVICE_HOME_SCREEN_OPTIONS,
   MOBILE_TOPBAR_HIDDEN_KEY,
 } from '@/lib/device-preferences';
-import { Settings, Key, Bell, Lock, AlertTriangle } from 'lucide-react';
+import { Settings, Key, Bell, Lock, AlertTriangle, Upload, Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
 
 export default function SettingsPage() {
@@ -20,12 +21,23 @@ export default function SettingsPage() {
     whatsappPhoneNumber: '',
     webhookUrl: '',
     apiKeyMasked: '',
+    businessName: '',
+    logoUrl: '',
+    brandColorPrimary: '#1f2937',
+    brandColorSecondary: '#a7f3d0',
+    phoneNumber: '',
+    address: '',
+    socialHandle: '',
+    tagline: '',
+    industry: '',
+    calendarPostingPaused: false,
   });
   const [isLoading, setIsLoading] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [apiKeyRaw, setApiKeyRaw] = useState('');
   const [deviceHomeScreen, setDeviceHomeScreen] = useState('/dashboard');
   const [hideMobileTopbar, setHideMobileTopbar] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   const loadSettings = async () => {
     if (!workspace?.id) return;
@@ -40,6 +52,16 @@ export default function SettingsPage() {
         whatsappPhoneNumber: data?.data?.whatsappPhoneNumber || '',
         webhookUrl: data?.data?.webhookUrl || '',
         apiKeyMasked: data?.data?.apiKeyMasked || '',
+        businessName: data?.data?.branding?.businessName || workspace?.name || '',
+        logoUrl: data?.data?.branding?.logoUrl || '',
+        brandColorPrimary: data?.data?.branding?.brandColorPrimary || '#1f2937',
+        brandColorSecondary: data?.data?.branding?.brandColorSecondary || '#a7f3d0',
+        phoneNumber: data?.data?.branding?.phoneNumber || data?.data?.whatsappPhoneNumber || '',
+        address: data?.data?.branding?.address || '',
+        socialHandle: data?.data?.branding?.socialHandle || '',
+        tagline: data?.data?.branding?.tagline || '',
+        industry: data?.data?.branding?.industry || '',
+        calendarPostingPaused: !!data?.data?.branding?.calendarPostingPaused,
       });
       if (!data?.data?.hasApiKey) {
         setApiKeyRaw('');
@@ -79,6 +101,16 @@ export default function SettingsPage() {
           whatsappPhoneNumber: formData.whatsappPhoneNumber,
           webhookUrl: formData.webhookUrl,
           regenerateApiKey,
+          businessName: formData.businessName,
+          logoUrl: formData.logoUrl,
+          brandColorPrimary: formData.brandColorPrimary,
+          brandColorSecondary: formData.brandColorSecondary,
+          phoneNumber: formData.phoneNumber,
+          address: formData.address,
+          socialHandle: formData.socialHandle,
+          tagline: formData.tagline,
+          industry: formData.industry,
+          calendarPostingPaused: formData.calendarPostingPaused,
         }),
       });
       const data = await res.json();
@@ -127,6 +159,31 @@ export default function SettingsPage() {
     setStatusText('This device preference saved');
   };
 
+  const uploadLogo = async (file: File | null) => {
+    if (!workspace?.id || !file) return;
+    setIsUploadingLogo(true);
+    setStatusText('');
+    try {
+      const uploadData = new FormData();
+      uploadData.append('workspaceId', workspace.id);
+      uploadData.append('file', file);
+      uploadData.append('title', `${formData.businessName || workspace.name || 'logo'} logo`);
+
+      const res = await fetch('/api/media/upload', {
+        method: 'POST',
+        body: uploadData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to upload logo');
+      setFormData((current) => ({ ...current, logoUrl: data?.url || '' }));
+      setStatusText('Logo uploaded successfully');
+    } catch (error: any) {
+      setStatusText(error?.message || 'Failed to upload logo');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-2xl">
       <div>
@@ -152,6 +209,131 @@ export default function SettingsPage() {
             {isLoading ? 'Saving...' : 'Save Changes'}
           </Button>
         </form>
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <ImageIcon className="w-5 h-5" />
+          Branding Settings
+        </h2>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium mb-2">Business Name</label>
+              <Input
+                value={formData.businessName}
+                onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                placeholder={workspace?.name || 'Business name'}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Industry</label>
+              <Input
+                value={formData.industry}
+                onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
+                placeholder="textile, jewellery, fashion..."
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium mb-2">Primary Brand Color</label>
+              <Input
+                type="color"
+                value={formData.brandColorPrimary}
+                onChange={(e) => setFormData({ ...formData, brandColorPrimary: e.target.value })}
+                className="h-10 w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Secondary Brand Color</label>
+              <Input
+                type="color"
+                value={formData.brandColorSecondary}
+                onChange={(e) => setFormData({ ...formData, brandColorSecondary: e.target.value })}
+                className="h-10 w-full"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Logo</label>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Input
+                value={formData.logoUrl}
+                onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
+                placeholder="https://... or upload a logo"
+                className="flex-1"
+              />
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted">
+                <Upload className="h-4 w-4" />
+                {isUploadingLogo ? 'Uploading...' : 'Upload Logo'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => uploadLogo(e.target.files?.[0] || null)}
+                  disabled={isUploadingLogo}
+                />
+              </label>
+            </div>
+            {formData.logoUrl ? (
+              <div className="mt-3 flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
+                <img src={formData.logoUrl} alt="Brand logo preview" className="h-14 w-14 rounded-lg object-contain bg-white p-2" />
+                <div className="break-all text-sm text-foreground/70">{formData.logoUrl}</div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium mb-2">Phone Number</label>
+              <Input
+                value={formData.phoneNumber}
+                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                placeholder="+91..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Instagram Handle</label>
+              <Input
+                value={formData.socialHandle}
+                onChange={(e) => setFormData({ ...formData, socialHandle: e.target.value })}
+                placeholder="@yourbrand"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Address</label>
+            <Input
+              value={formData.address}
+              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              placeholder="Shop address"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Tagline</label>
+            <Input
+              value={formData.tagline}
+              onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
+              placeholder="Your festive sales partner"
+            />
+          </div>
+
+          <label className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 p-4">
+            <div>
+              <div className="text-sm font-medium">Pause all Calendar posting</div>
+              <div className="text-xs text-foreground/60">Stops every scheduled festival and custom event post until turned back on.</div>
+            </div>
+            <Switch
+              checked={!formData.calendarPostingPaused}
+              onCheckedChange={(checked) => setFormData({ ...formData, calendarPostingPaused: !checked })}
+            />
+          </label>
+        </div>
       </Card>
 
       <Card className="p-6">

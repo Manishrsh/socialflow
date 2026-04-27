@@ -45,6 +45,18 @@ export async function GET(request: NextRequest) {
     const workspace = rows[0];
     const settings = parseSettings(workspace.settings);
     const apiKey = String(settings?.apiKey || '');
+    const branding = {
+      businessName: String(settings?.businessName || workspace.name || '').trim(),
+      logoUrl: String(settings?.logoUrl || '').trim(),
+      brandColorPrimary: String(settings?.brandColorPrimary || '').trim(),
+      brandColorSecondary: String(settings?.brandColorSecondary || '').trim(),
+      phoneNumber: String(settings?.phoneNumber || settings?.whatsappPhoneNumber || '').trim(),
+      address: String(settings?.address || '').trim(),
+      socialHandle: String(settings?.socialHandle || '').trim(),
+      tagline: String(settings?.tagline || '').trim(),
+      industry: String(settings?.industry || '').trim(),
+      calendarPostingPaused: !!settings?.calendarPostingPaused,
+    };
 
     return NextResponse.json({
       success: true,
@@ -54,6 +66,7 @@ export async function GET(request: NextRequest) {
         webhookUrl: String(settings?.webhookUrl || ''),
         apiKeyMasked: apiKey ? `${'*'.repeat(Math.max(8, apiKey.length - 4))}${apiKey.slice(-4)}` : '',
         hasApiKey: !!apiKey,
+        branding,
       },
     });
   } catch (error: any) {
@@ -73,6 +86,16 @@ export async function POST(request: NextRequest) {
     const whatsappPhoneNumber = String(body?.whatsappPhoneNumber || '').trim();
     const webhookUrl = String(body?.webhookUrl || '').trim();
     const regenerateApiKey = !!body?.regenerateApiKey;
+    const businessName = String(body?.businessName || '').trim();
+    const logoUrl = String(body?.logoUrl || '').trim();
+    const brandColorPrimary = String(body?.brandColorPrimary || '').trim();
+    const brandColorSecondary = String(body?.brandColorSecondary || '').trim();
+    const phoneNumber = String(body?.phoneNumber || '').trim();
+    const address = String(body?.address || '').trim();
+    const socialHandle = String(body?.socialHandle || '').trim();
+    const tagline = String(body?.tagline || '').trim();
+    const industry = String(body?.industry || '').trim();
+    const calendarPostingPaused = !!body?.calendarPostingPaused;
 
     if (!workspaceId || !workspaceName) {
       return NextResponse.json({ error: 'workspaceId and workspaceName are required' }, { status: 400 });
@@ -99,6 +122,16 @@ export async function POST(request: NextRequest) {
       whatsappPhoneNumber,
       webhookUrl,
       apiKey: nextApiKey,
+      businessName: businessName || settings?.businessName || workspaceName,
+      logoUrl,
+      brandColorPrimary,
+      brandColorSecondary,
+      phoneNumber,
+      address,
+      socialHandle,
+      tagline,
+      industry,
+      calendarPostingPaused,
     };
 
     await sql`
@@ -117,6 +150,18 @@ export async function POST(request: NextRequest) {
         whatsappPhoneNumber,
         webhookUrl,
         apiKey: nextApiKey || null,
+        branding: {
+          businessName: nextSettings.businessName || workspaceName,
+          logoUrl,
+          brandColorPrimary,
+          brandColorSecondary,
+          phoneNumber,
+          address,
+          socialHandle,
+          tagline,
+          industry,
+          calendarPostingPaused,
+        },
       },
     });
   } catch (error: any) {

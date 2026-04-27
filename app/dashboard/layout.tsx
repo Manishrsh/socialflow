@@ -27,6 +27,7 @@ import {
   PanelLeftOpen,
   FileText,
   CalendarRange,
+  CalendarDays,
 } from 'lucide-react';
 
 interface NavItem {
@@ -255,6 +256,12 @@ export default function DashboardLayout({
       name: 'Scheduled Messages',
       href: '/dashboard/scheduled-messages',
       icon: <Clock className="w-5 h-5" />,
+    },
+    {
+      name: 'Calendar',
+      href: '/dashboard/calendar',
+      icon: <CalendarDays className="w-5 h-5" />,
+      badge: 'New',
     },
     {
       name: 'Auto Messages',

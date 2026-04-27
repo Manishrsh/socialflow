@@ -599,6 +599,90 @@ export async function ensureCoreSchema(): Promise<void> {
 
     // Create index for auto message rules
     await sql`CREATE INDEX IF NOT EXISTS idx_auto_message_rules_workspace_type ON auto_message_rules(workspace_id, rule_type, enabled)`;
+
+    // Calendar marketing tables
+    await sql`
+      CREATE TABLE IF NOT EXISTS calendar_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        event_date DATE NOT NULL,
+        event_type VARCHAR(50) NOT NULL,
+        repeat_yearly BOOLEAN DEFAULT false,
+        logo_url VARCHAR(1000),
+        notes TEXT,
+        is_enabled BOOLEAN DEFAULT false,
+        deleted_at TIMESTAMP,
+        created_by UUID REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(workspace_id, name, event_date, deleted_at)
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_workspace_date
+      ON calendar_events(workspace_id, event_date, is_enabled)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_workspace_created
+      ON calendar_events(workspace_id, created_at DESC)
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS calendar_festival_overrides (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        festival_key VARCHAR(100) NOT NULL,
+        is_enabled BOOLEAN DEFAULT true,
+        created_by UUID REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(workspace_id, festival_key)
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_calendar_festival_overrides_workspace
+      ON calendar_festival_overrides(workspace_id, festival_key)
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS calendar_event_posts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        calendar_event_id UUID REFERENCES calendar_events(id) ON DELETE CASCADE,
+        festival_key VARCHAR(100),
+        source_kind VARCHAR(50) NOT NULL,
+        event_name VARCHAR(255) NOT NULL,
+        event_date DATE NOT NULL,
+        post_title VARCHAR(255) NOT NULL,
+        caption TEXT NOT NULL,
+        creative_svg TEXT NOT NULL,
+        creative_preview_url VARCHAR(1000),
+        scheduled_for TIMESTAMP,
+        posted_at TIMESTAMP,
+        instagram_post_id VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'draft',
+        engagement_status VARCHAR(50) DEFAULT 'pending',
+        retry_count INTEGER DEFAULT 0,
+        failure_reason TEXT,
+        disabled_reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_calendar_event_posts_workspace_status_time
+      ON calendar_event_posts(workspace_id, status, scheduled_for)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_calendar_event_posts_workspace_date
+      ON calendar_event_posts(workspace_id, event_date DESC, created_at DESC)
+    `;
   })();
 
   return coreSchemaInitPromise;

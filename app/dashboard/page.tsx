@@ -11,6 +11,7 @@ import { DEVICE_HOME_SCREEN_KEY } from '@/lib/device-preferences';
 import {
   ArrowRight,
   BarChart3,
+  CalendarDays,
   MessageSquare,
   Send,
   Users,
@@ -54,6 +55,32 @@ interface ExecutionLog {
   summary: string | null;
   details: Record<string, unknown>;
   created_at: string;
+}
+
+interface CalendarPostsResponse {
+  upcomingPosts: Array<{
+    id: string;
+    eventName: string;
+    eventDate: string;
+    status: string;
+    scheduledFor: string | null;
+    postedAt: string | null;
+    engagementStatus: string;
+  }>;
+  pastPosts: Array<{
+    id: string;
+    eventName: string;
+    eventDate: string;
+    status: string;
+    postedAt: string | null;
+    engagementStatus: string;
+  }>;
+  engagementStatus: {
+    total: number;
+    posted: number;
+    failed: number;
+    scheduled: number;
+  };
 }
 
 const fetcher = async (url: string) => {
@@ -117,6 +144,19 @@ export default function DashboardPage() {
     }
   );
 
+  const {
+    data: calendarData,
+    error: calendarError,
+    isLoading: isCalendarLoading,
+  } = useSWR<CalendarPostsResponse>(
+    workspace ? `/api/calendar/posts?workspaceId=${workspace.id}&limit=6` : null,
+    fetcher,
+    {
+      refreshInterval: 15000,
+      revalidateOnFocus: true,
+    }
+  );
+
   const summary = analytics?.summary;
   const stats = summary
     ? [
@@ -175,6 +215,12 @@ export default function DashboardPage() {
       description: 'Dive deeper into delivery and engagement',
       href: '/dashboard/analytics',
       icon: <BarChart3 className="h-6 w-6" />,
+    },
+    {
+      title: 'Open Calendar',
+      description: 'Plan festivals, anniversary posts, and branded creatives',
+      href: '/dashboard/calendar',
+      icon: <CalendarDays className="h-6 w-6" />,
     },
   ];
 
@@ -319,6 +365,63 @@ export default function DashboardPage() {
               </Link>
             ))}
           </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">Calendar Marketing</h2>
+              <p className="text-sm text-foreground/60">Upcoming posts, past posts, and engagement status.</p>
+            </div>
+            <CalendarDays className="h-5 w-5 text-foreground/40" />
+          </div>
+
+          {calendarError ? (
+            <div className="rounded-2xl border p-4 text-sm text-destructive">{calendarError.message}</div>
+          ) : isCalendarLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-16 animate-pulse rounded-2xl bg-muted" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border bg-background p-4">
+                  <div className="text-xs text-foreground/60">Upcoming</div>
+                  <div className="mt-2 text-2xl font-bold">{calendarData?.engagementStatus?.scheduled || 0}</div>
+                </div>
+                <div className="rounded-2xl border bg-background p-4">
+                  <div className="text-xs text-foreground/60">Posted</div>
+                  <div className="mt-2 text-2xl font-bold">{calendarData?.engagementStatus?.posted || 0}</div>
+                </div>
+                <div className="rounded-2xl border bg-background p-4">
+                  <div className="text-xs text-foreground/60">Failed</div>
+                  <div className="mt-2 text-2xl font-bold">{calendarData?.engagementStatus?.failed || 0}</div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {(calendarData?.upcomingPosts || []).slice(0, 3).map((post) => (
+                  <div key={post.id} className="rounded-2xl border p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-medium">{post.eventName}</div>
+                        <div className="text-xs text-foreground/60">{new Date(post.eventDate).toLocaleDateString()}</div>
+                      </div>
+                      <div className="rounded-full bg-muted px-3 py-1 text-xs font-medium capitalize">{post.status}</div>
+                    </div>
+                    <div className="mt-2 text-xs text-foreground/60">Engagement: {post.engagementStatus}</div>
+                  </div>
+                ))}
+                {!calendarData?.upcomingPosts?.length ? (
+                  <div className="rounded-2xl border border-dashed p-4 text-sm text-foreground/60">
+                    No calendar posts scheduled yet.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
         </Card>
 
         <Card className="p-6">
