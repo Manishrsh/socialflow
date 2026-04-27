@@ -26,6 +26,7 @@ interface CalendarEventItem {
   status: 'Scheduled' | 'Posted' | 'Disabled';
   labelColor: 'green' | 'blue';
   logoUrl?: string | null;
+  customImageUrl?: string | null;
   notes?: string | null;
   post?: {
     id: string;
@@ -141,8 +142,10 @@ export default function CalendarPage() {
     isEnabled: false,
     notes: '',
     logoUrl: '',
+    customImageUrl: '',
   });
   const [selectedLogoFileName, setSelectedLogoFileName] = useState('');
+  const [selectedCustomImageFileName, setSelectedCustomImageFileName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [statusText, setStatusText] = useState('');
@@ -201,8 +204,10 @@ export default function CalendarPage() {
         isEnabled: editingEvent.isEnabled,
         notes: editingEvent.notes || '',
         logoUrl: editingEvent.logoUrl || branding?.logoUrl || '',
+        customImageUrl: editingEvent.customImageUrl || '',
       });
       setSelectedLogoFileName('');
+      setSelectedCustomImageFileName('');
       return;
     }
 
@@ -214,8 +219,10 @@ export default function CalendarPage() {
       isEnabled: false,
       notes: '',
       logoUrl: branding?.logoUrl || '',
+      customImageUrl: '',
     });
     setSelectedLogoFileName('');
+    setSelectedCustomImageFileName('');
   }, [dialogOpen, editingEvent, branding?.logoUrl]);
 
   const openCreateDialog = () => {
@@ -238,6 +245,7 @@ export default function CalendarPage() {
     sourceKind: 'festival' | 'custom';
     repeatYearly: boolean;
     logoUrl?: string;
+    customImageUrl?: string;
     festivalTone?: string;
   }) => {
     if (!workspace?.id) return;
@@ -254,6 +262,11 @@ export default function CalendarPage() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || 'Failed to build preview');
+      
+      if (event.customImageUrl) {
+        payload.preview.imageUrl = event.customImageUrl;
+        payload.preview.creativeSvg = '';
+      }
       setPreviewDraft(payload.preview);
       setPreviewOpen(true);
     } catch (previewError: any) {
@@ -282,6 +295,25 @@ export default function CalendarPage() {
     }
   };
 
+  const uploadCustomImage = async (file: File | null) => {
+    if (!workspace?.id || !file) return;
+    setStatusText('');
+    try {
+      const uploadData = new FormData();
+      uploadData.append('workspaceId', workspace.id);
+      uploadData.append('file', file);
+      uploadData.append('title', `${formState.eventName || 'Custom Post'} Image`);
+      const response = await fetch('/api/media/upload', { method: 'POST', body: uploadData });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || 'Failed to upload custom image');
+      setFormState((current) => ({ ...current, customImageUrl: payload?.url || '' }));
+      setSelectedCustomImageFileName(file.name);
+      setStatusText('Custom image uploaded successfully');
+    } catch (uploadError: any) {
+      setStatusText(uploadError?.message || 'Failed to upload custom image');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!workspace?.id) return;
@@ -298,6 +330,7 @@ export default function CalendarPage() {
         isEnabled: formState.isEnabled,
         notes: formState.notes,
         logoUrl: formState.logoUrl,
+        customImageUrl: formState.customImageUrl,
       };
 
       const response = await fetch(editingEvent ? `/api/calendar/events/${editingEvent.id}` : '/api/calendar/events', {
@@ -371,6 +404,7 @@ export default function CalendarPage() {
       sourceKind: 'custom',
       repeatYearly: formState.repeatYearly,
       logoUrl: formState.logoUrl,
+      customImageUrl: formState.customImageUrl,
     });
   };
 
@@ -675,6 +709,7 @@ export default function CalendarPage() {
                     sourceKind: 'custom',
                     repeatYearly: event.repeatYearly,
                     logoUrl: event.logoUrl || branding?.logoUrl || '',
+                    customImageUrl: event.customImageUrl || '',
                   })}>
                     <Eye className="mr-2 h-4 w-4" />
                     Preview
@@ -753,6 +788,19 @@ export default function CalendarPage() {
               </div>
               {selectedLogoFileName ? <div className="mt-2 text-xs text-foreground/60">Uploaded: {selectedLogoFileName}</div> : null}
             </div>
+
+    <div>
+      <label className="mb-2 block text-sm font-medium">Custom Post Image (Optional)</label>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Input value={formState.customImageUrl} onChange={(e) => setFormState({ ...formState, customImageUrl: e.target.value })} placeholder="Upload an image to replace the auto-generated design" className="flex-1" />
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted">
+          <Upload className="h-4 w-4" />
+          Upload
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => uploadCustomImage(e.target.files?.[0] || null)} />
+        </label>
+      </div>
+      {selectedCustomImageFileName ? <div className="mt-2 text-xs text-foreground/60">Uploaded: {selectedCustomImageFileName}</div> : null}
+    </div>
 
             <div>
               <label className="mb-2 block text-sm font-medium">Notes</label>

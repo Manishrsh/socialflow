@@ -110,10 +110,10 @@ function buildMonthCustomEventRows(input: {
         eventDate: actualDate.toISOString(),
         post: post
           ? {
-              status: post.status,
-              postedAt: post.posted_at,
-              scheduledFor: post.scheduled_for,
-            }
+            status: post.status,
+            postedAt: post.posted_at,
+            scheduledFor: post.scheduled_for,
+          }
           : null,
         paused: input.brandingPaused,
       });
@@ -130,6 +130,7 @@ function buildMonthCustomEventRows(input: {
         status,
         labelColor: 'blue' as const,
         logoUrl: event.logo_url || null,
+        customImageUrl: event.custom_image_url || null,
         notes: event.notes || null,
         post: mapPostSummary(post),
       };
@@ -155,10 +156,10 @@ function buildFestivalRows(input: {
         eventDate: festival.eventDate,
         post: post
           ? {
-              status: post.status,
-              postedAt: post.posted_at,
-              scheduledFor: post.scheduled_for,
-            }
+            status: post.status,
+            postedAt: post.posted_at,
+            scheduledFor: post.scheduled_for,
+          }
           : null,
         paused: input.brandingPaused,
       });
@@ -190,6 +191,7 @@ async function createEventPost(input: {
   eventType: string;
   sourceKind: 'custom';
   logoUrl: string | null;
+  customImageUrl?: string | null;
   branding: ReturnType<typeof getBrandingSettings>;
   requestOrigin: string;
   isEnabled: boolean;
@@ -209,13 +211,14 @@ async function createEventPost(input: {
   });
   const scheduledFor = input.isEnabled
     ? resolveScheduleTime({
-        eventDate: input.eventDate,
-        repeatYearly: input.repeatYearly,
-        eventType: input.eventType,
-      }).toISOString()
+      eventDate: input.eventDate,
+      repeatYearly: input.repeatYearly,
+      eventType: input.eventType,
+    }).toISOString()
     : null;
 
-  const previewUrl = buildCreativePreviewUrl(input.requestOrigin, postId);
+  const previewUrl = input.customImageUrl || buildCreativePreviewUrl(input.requestOrigin, postId);
+  const finalSvg = input.customImageUrl ? '' : creative.creativeSvg;
   await sql`
     INSERT INTO calendar_event_posts (
       id, workspace_id, calendar_event_id, source_kind, event_name, event_date,
@@ -224,7 +227,7 @@ async function createEventPost(input: {
     VALUES (
       ${postId}, ${input.workspaceId}, ${input.calendarEventId}, ${input.sourceKind},
       ${input.eventName}, ${input.eventDate},
-      ${creative.title}, ${creative.caption}, ${creative.creativeSvg}, ${previewUrl}, ${scheduledFor},
+      ${creative.title}, ${creative.caption}, ${finalSvg}, ${previewUrl}, ${scheduledFor},
       ${input.isEnabled ? 'scheduled' : 'draft'}, ${input.isEnabled ? 'scheduled' : 'pending'}
     )
   `;
@@ -240,6 +243,12 @@ async function createEventPost(input: {
 export async function GET(request: NextRequest) {
   try {
     await ensureCoreSchema();
+
+    try {
+      await sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS custom_image_url VARCHAR(1000)`;
+    } catch (e) {
+      // Ignore if exists
+    }
 
     const userId = await requireUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -261,7 +270,7 @@ export async function GET(request: NextRequest) {
     const limits = getPlanLimits(tier);
 
     const customEvents = await sql`
-      SELECT id, name, event_date, event_type, repeat_yearly, logo_url, notes, is_enabled, created_at, updated_at
+      SELECT id, name, event_date, event_type, repeat_yearly, logo_url, custom_image_url, notes, is_enabled, created_at, updated_at
       FROM calendar_events
       WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL
       ORDER BY event_date ASC, created_at DESC
@@ -349,6 +358,12 @@ export async function POST(request: NextRequest) {
   try {
     await ensureCoreSchema();
 
+    try {
+      await sql`ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS custom_image_url VARCHAR(1000)`;
+    } catch (e) {
+      // Ignore if exists
+    }
+
     const userId = await requireUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -359,6 +374,7 @@ export async function POST(request: NextRequest) {
     const eventType = String(body?.eventType || 'Custom').trim();
     const repeatYearly = !!body?.repeatYearly;
     const logoUrl = String(body?.logoUrl || '').trim();
+    const customImageUrl = String(body?.customImageUrl || '').trim();
     const notes = String(body?.notes || '').trim();
     const isEnabled = !!body?.isEnabled;
 
@@ -403,28 +419,29 @@ export async function POST(request: NextRequest) {
     const eventId = uuidv4();
     await sql`
       INSERT INTO calendar_events (
-        id, workspace_id, name, event_date, event_type, repeat_yearly, logo_url, notes, is_enabled, created_by
+        id, workspace_id, name, event_date, event_type, repeat_yearly, logo_url, custom_image_url, notes, is_enabled, created_by
       )
       VALUES (
         ${eventId}, ${workspaceId}, ${name}, ${eventDate}, ${eventType}, ${repeatYearly},
-        ${logoUrl || null}, ${notes || null}, ${isEnabled}, ${userId}
+        ${logoUrl || null}, ${customImageUrl || null}, ${notes || null}, ${isEnabled}, ${userId}
       )
     `;
 
     const post = isEnabled
       ? await createEventPost({
-          workspaceId,
-          calendarEventId: eventId,
-          eventName: name,
-          eventDate,
-          eventType,
-          sourceKind: 'custom',
-          logoUrl: logoUrl || null,
-          branding,
-          requestOrigin,
-          isEnabled,
-          repeatYearly,
-        })
+        workspaceId,
+        calendarEventId: eventId,
+        eventName: name,
+        eventDate,
+        eventType,
+        sourceKind: 'custom',
+        logoUrl: logoUrl || null,
+        customImageUrl: customImageUrl || null,
+        branding,
+        requestOrigin,
+        isEnabled,
+        repeatYearly,
+      })
       : null;
 
     const eventStatus = deriveEventStatus({
@@ -432,9 +449,9 @@ export async function POST(request: NextRequest) {
       eventDate,
       post: post
         ? {
-            status: 'scheduled',
-            scheduledFor: post.scheduledFor,
-          }
+          status: 'scheduled',
+          scheduledFor: post.scheduledFor,
+        }
         : null,
       paused: branding.calendarPostingPaused,
     });
@@ -453,20 +470,21 @@ export async function POST(request: NextRequest) {
         status: eventStatus,
         labelColor: 'blue',
         logoUrl: logoUrl || branding.logoUrl || null,
+        customImageUrl: customImageUrl || null,
         notes: notes || null,
         post: post
           ? {
-              id: post.postId,
-              status: 'scheduled',
-              scheduledFor: post.scheduledFor,
-              postedAt: null,
-              instagramPostId: null,
-              engagementStatus: 'scheduled',
-              failureReason: null,
-              creativePreviewUrl: post.previewUrl,
-              caption: post.caption,
-              postTitle: post.title,
-            }
+            id: post.postId,
+            status: 'scheduled',
+            scheduledFor: post.scheduledFor,
+            postedAt: null,
+            instagramPostId: null,
+            engagementStatus: 'scheduled',
+            failureReason: null,
+            creativePreviewUrl: post.previewUrl,
+            caption: post.caption,
+            postTitle: post.title,
+          }
           : null,
       },
     });
