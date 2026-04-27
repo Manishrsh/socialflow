@@ -135,9 +135,7 @@ function resolveTextReplyToButtons(
     return (
       normalizedInput === String(idx + 1) ||
       normalizedInput === title ||
-      normalizedInput === id ||
-      normalizedInput.includes(title) ||
-      title.includes(normalizedInput)
+      normalizedInput === id
     );
   });
 
