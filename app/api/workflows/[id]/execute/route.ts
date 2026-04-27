@@ -65,6 +65,32 @@ function normalizeNodeButtons(data: Record<string, any>): Array<{ id: string; ti
     .filter((b) => b.id && b.title);
 }
 
+function normalizeChoiceOptions(data: Record<string, any>): Array<{ id: string; title: string }> {
+  const buttons = normalizeNodeButtons(data);
+  if (buttons.length > 0) return buttons;
+
+  const listRows = toArray(data.listRowsJson)
+    .map((row: any, idx: number) => ({
+      id: String(row?.id || idx + 1).trim(),
+      title: String(row?.title || `Option ${idx + 1}`).trim(),
+    }))
+    .filter((row) => row.id && row.title);
+
+  if (listRows.length > 0) return listRows;
+
+  const legacyRows = [
+    data.listRow1Title ? { id: String(data.listRow1Id || '1'), title: String(data.listRow1Title) } : null,
+    data.listRow2Title ? { id: String(data.listRow2Id || '2'), title: String(data.listRow2Title) } : null,
+  ].filter(Boolean) as Array<{ id: string; title: string }>;
+
+  return legacyRows
+    .map((row, idx) => ({
+      id: String(row.id || idx + 1).trim(),
+      title: String(row.title || `Option ${idx + 1}`).trim(),
+    }))
+    .filter((row) => row.id && row.title);
+}
+
 function normalizeChoiceText(value: any): string {
   return String(value || '')
     .trim()
@@ -116,6 +142,26 @@ function resolveTextReplyToButtons(
   return matched || null;
 }
 
+function resolveReplyButtonIndex(
+  buttons: Array<{ id: string; title: string }>,
+  replyId: string,
+  replyTitle: string
+): number {
+  const normalizedReplyId = String(replyId || '').trim().toLowerCase();
+  const normalizedReplyTitle = String(replyTitle || '').trim().toLowerCase();
+
+  if (!normalizedReplyId && !normalizedReplyTitle) return -1;
+
+  return buttons.findIndex((button, idx) => {
+    const buttonId = String(button.id || '').trim().toLowerCase();
+    const buttonTitle = String(button.title || '').trim().toLowerCase();
+    return (
+      (normalizedReplyId && (normalizedReplyId === buttonId || normalizedReplyId === String(idx + 1))) ||
+      (normalizedReplyTitle && normalizedReplyTitle === buttonTitle)
+    );
+  });
+}
+
 function normalizeMediaItems(
   data: Record<string, any>,
   variables: Record<string, any> | undefined
@@ -155,7 +201,7 @@ function replyMatchesInteractiveNode(
   const replyId = String(variables?.buttonReplyId || variables?.buttonId || '').trim();
   const replyTitle = String(variables?.buttonReplyTitle || variables?.buttonTitle || '').trim().toLowerCase();
 
-  const buttons = normalizeNodeButtons(node.data || {});
+  const buttons = normalizeChoiceOptions(node.data || {});
   const textReply = resolveTextReplyToButtons(buttons, variables?.message);
   if (!replyId && !replyTitle && !textReply) return false;
 
@@ -440,7 +486,10 @@ function resolveExecutionPath(
     if (node.type === 'actionSendMessage') {
       const data = node.data || {};
       const messageType = String(data.messageType || '').trim().toLowerCase();
-      const buttons = normalizeNodeButtons(data);
+      const buttons = normalizeChoiceOptions(data);
+      const outgoingTargets: string[] = (outgoing.get(currentId) || []).filter(
+        (id): id is string => !!id
+      );
       const hasInteractiveChoice =
         messageType === 'interactive_button' ||
         messageType === 'interactive_list' ||
@@ -483,6 +532,15 @@ function resolveExecutionPath(
             target = String(edgeButtonRoutes[btn.id]);
           } else if (btn?.id && routes[btn.id]) {
             target = String(routes[btn.id]);
+          }
+        }
+
+        if (!target && outgoingTargets.length > 0) {
+          const replyIndex = resolveReplyButtonIndex(buttons, currentReplyId, currentReplyTitle);
+          if (replyIndex >= 0) {
+            target = String(outgoingTargets[replyIndex] || outgoingTargets[0] || '');
+          } else if (outgoingTargets.length === 1) {
+            target = String(outgoingTargets[0]);
           }
         }
 
