@@ -218,6 +218,27 @@ function replyMatchesInteractiveNode(
   return false;
 }
 
+function findReplyInteractiveNode(
+  nodes: FlowNode[],
+  variables: Record<string, any> | undefined
+): FlowNode | null {
+  for (const node of nodes) {
+    if (node.type !== 'actionSendMessage') continue;
+    const data = node.data || {};
+    const messageType = String(data.messageType || '').trim().toLowerCase();
+    const hasChoiceSurface =
+      messageType === 'interactive_button' ||
+      messageType === 'interactive_list' ||
+      normalizeChoiceOptions(data).length > 0;
+    if (!hasChoiceSurface) continue;
+    if (replyMatchesInteractiveNode(node, variables)) {
+      return node;
+    }
+  }
+
+  return null;
+}
+
 function resolvePublicBaseUrl(request: NextRequest): string {
   const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').trim();
   const forwardedHost = String(request.headers.get('x-forwarded-host') || '').trim();
@@ -455,8 +476,12 @@ function resolveExecutionPath(
 
   const matchedStartNode = findMatchingStartNode(starters, variables);
   const fallbackStartNode = starters.length === 0 ? nodes[0] : null;
+  const replyTargetNode = hasReply ? findReplyInteractiveNode(nodes, variables) : null;
   const startNode =
-    (resumeNodeId && (hasReply || hasFlowResponse) && nodeById.get(resumeNodeId)) || matchedStartNode || fallbackStartNode;
+    (resumeNodeId && (hasReply || hasFlowResponse) && nodeById.get(resumeNodeId)) ||
+    replyTargetNode ||
+    matchedStartNode ||
+    fallbackStartNode;
   if (!startNode) return [];
 
   console.log('[Workflow Execute] Execution path selection', {
@@ -464,6 +489,8 @@ function resolveExecutionPath(
     resumeNodeId: resumeNodeId || null,
     hasReply,
     hasFlowResponse,
+    replyTargetNodeId: replyTargetNode?.id || null,
+    replyTargetNodeType: replyTargetNode?.type || null,
     matchedStartNodeId: matchedStartNode?.id || null,
     matchedStartNodeType: matchedStartNode?.type || null,
     fallbackStartNodeId: fallbackStartNode?.id || null,
