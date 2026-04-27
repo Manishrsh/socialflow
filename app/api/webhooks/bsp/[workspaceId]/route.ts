@@ -31,6 +31,52 @@ function pickBookingValue(data: Record<string, any>, keys: string[]): string | n
   return null;
 }
 
+function normalizeTriggerText(value: unknown): string {
+  return String(value || '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u2018\u2019']/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toArray(value: any): any[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function workflowHasMatchingKeywordTrigger(nodesValue: any, incomingText: string): boolean {
+  const text = normalizeTriggerText(incomingText);
+  if (!text) return false;
+
+  const nodes = toArray(nodesValue);
+  if (!Array.isArray(nodes) || nodes.length === 0) return false;
+
+  return nodes.some((node: any) => {
+    const type = String(node?.type || '').trim();
+    if (type !== 'triggerKeyword') return false;
+
+    const keywords = toArray(node?.data?.keywords)
+      .map((keyword: any) => normalizeTriggerText(keyword))
+      .filter(Boolean);
+    const singleKeyword = normalizeTriggerText(node?.data?.keyword);
+    if (singleKeyword) keywords.push(singleKeyword);
+
+    if (keywords.length === 0) return false;
+    return keywords.some((keyword) => text.includes(keyword));
+  });
+}
+
 async function saveAppointmentBooking(input: {
   workspaceId: string;
   customerId: string | null;
@@ -642,6 +688,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           hasReplySignal ||
           hasFlowReplySignal;
         const isStatusOnlyEvent = ['sent', 'delivered', 'read', 'failed'].includes(normalizedEventType);
+        const activeWorkflows = await sql`
+          SELECT id, nodes
+          FROM workflows
+          WHERE workspace_id = ${workspaceId} AND is_active = true
+          ORDER BY updated_at DESC
+          LIMIT 25
+        `;
+        const hasKeywordTriggerMatch =
+          !!normalized.phone &&
+          hasTextMessage &&
+          !hasReplySignal &&
+          !hasFlowReplySignal &&
+          (activeWorkflows || []).some((wf: any) =>
+            workflowHasMatchingKeywordTrigger(wf.nodes, String(normalized.message || ''))
+          );
 
         if (!hasInboundMessageSignal || isStatusOnlyEvent) {
           console.log('[Webhook BSP][POST] Ignoring non-inbound event', {
@@ -666,6 +727,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
 
         if ((hasReplySignal || hasFlowReplySignal || hasTextMessage) && normalized.phone) {
+          if (hasKeywordTriggerMatch) {
+            console.log('[Webhook BSP][POST] Fresh keyword trigger matched; clearing wait states', {
+              workspaceId,
+              phone: String(normalized.phone),
+              provider: normalized.provider,
+              message: normalized.message || '',
+            });
+            await sql`
+              DELETE FROM workflow_wait_states
+              WHERE workspace_id = ${workspaceId}
+                AND phone = ${String(normalized.phone)}
+            `;
+          }
+
           const waits = await sql`
             SELECT id, workflow_id, node_id
             FROM workflow_wait_states
@@ -676,7 +751,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             LIMIT 1
           `;
 
-          const wait = waits?.[0];
+          const wait = hasKeywordTriggerMatch ? null : waits?.[0];
           if (wait?.workflow_id) {
             console.log('[Webhook BSP][POST] Resuming waiting workflow', {
               workspaceId,
@@ -728,14 +803,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             });
           }
         }
-
-        const activeWorkflows = await sql`
-          SELECT id, nodes
-          FROM workflows
-          WHERE workspace_id = ${workspaceId} AND is_active = true
-          ORDER BY updated_at DESC
-          LIMIT 25
-        `;
 
         const hasInboundTrigger = (nodesValue: any) => {
           if (!nodesValue) return false;
