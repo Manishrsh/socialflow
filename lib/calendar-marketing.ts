@@ -290,7 +290,9 @@ export function resolveScheduleTime(input: {
   const hour = hoursByType[type] ?? 10;
 
   if (input.repeatYearly) {
-    const targetYear = isBefore(new Date(now.getFullYear(), sourceDate.getMonth(), sourceDate.getDate()), now)
+    const eventThisYear = new Date(now.getFullYear(), sourceDate.getMonth(), sourceDate.getDate());
+    const todayStart = startOfDay(now);
+    const targetYear = isBefore(eventThisYear, todayStart)
       ? now.getFullYear() + 1
       : now.getFullYear();
     const daysInMonth = getDaysInMonth(new Date(targetYear, sourceDate.getMonth(), 1));
@@ -366,17 +368,17 @@ export function buildCreativeSvg(input: {
   const businessName = escapeXml(input.branding.businessName);
   const footer = escapeXml(
     input.footerLine ||
-      [input.branding.phoneNumber, input.branding.address || input.branding.socialHandle ? [input.branding.address, input.branding.socialHandle ? `@${input.branding.socialHandle.replace(/^@/, '')}` : ''].filter(Boolean).join(' • ') : '']
-        .filter(Boolean)
-        .join(' • ')
+    [input.branding.phoneNumber, input.branding.address || input.branding.socialHandle ? [input.branding.address, input.branding.socialHandle ? `@${input.branding.socialHandle.replace(/^@/, '')}` : ''].filter(Boolean).join(' • ') : '']
+      .filter(Boolean)
+      .join(' • ')
   );
   const tagline = escapeXml(input.branding.tagline || input.eventCategory || input.eventType);
   const logoUrl = String(input.branding.logoUrl || '').trim();
   const logoNode = logoUrl
     ? `<image href="${escapeXml(logoUrl)}" x="88" y="84" width="140" height="140" preserveAspectRatio="xMidYMid meet" clip-path="url(#logoClip)" />`
     : `<text x="158" y="166" text-anchor="middle" font-size="54" font-weight="700" fill="#ffffff">${escapeXml(
-        businessName.slice(0, 1) || 'B'
-      )}</text>`;
+      businessName.slice(0, 1) || 'B'
+    )}</text>`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">

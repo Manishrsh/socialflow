@@ -11,7 +11,7 @@ import {
   normalizePlanTier,
   resolveScheduleTime,
 } from '@/lib/calendar-marketing';
-import { createInstagramMediaContainer, publishInstagramMediaContainer } from '@/lib/instagram-publishing-service';
+import { publishInstagramImage } from '@/lib/instagram';
 
 // مشتر handler for GET & POST
 async function handler(request: NextRequest) {
@@ -26,7 +26,11 @@ async function handler(request: NextRequest) {
     //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     // }
 
+    const isDryRun = process.env.DRY_RUN === 'true' || request.nextUrl.searchParams.get('dryRun') === 'true';
+    const forcePostId = request.nextUrl.searchParams.get('forcePostId');
+
     console.log('[CRON] Processing scheduled messages...');
+    if (isDryRun) console.log('[CRON] 🏜️ DRY RUN MODE ENABLED: Database will not be modified.');
 
     await ensureCoreSchema();
 
@@ -63,11 +67,15 @@ async function handler(request: NextRequest) {
 
         // ✅ Expire after 24 hours
         if (messageAge > twentyFourHoursMs) {
-          await sql`
-            UPDATE scheduled_messages
-            SET status = 'expired', updated_at = CURRENT_TIMESTAMP
-            WHERE id = ${msg.id}
-          `;
+          if (isDryRun) {
+            console.log(`[CRON] DRY RUN: Would expire scheduled_message ${msg.id}`);
+          } else {
+            await sql`
+              UPDATE scheduled_messages
+              SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+              WHERE id = ${msg.id}
+            `;
+          }
           continue;
         }
 
@@ -99,7 +107,7 @@ async function handler(request: NextRequest) {
         const isWithin24Hours = timeSinceLastMessage < twentyFourHoursMs;
 
         // ✅ FIXED LOGIC
-        if (shouldSendNow) {
+        if (shouldSendNow || msg.id === forcePostId) {
           if (!isWithin24Hours) {
             console.log(`[CRON] Waiting (user inactive) ${msg.id}`);
             continue; // ⏳ wait, don’t skip
@@ -108,41 +116,45 @@ async function handler(request: NextRequest) {
           // 🚀 SEND MESSAGE
           const messageId = uuidv4();
 
-          await sql`
-            INSERT INTO messages (
-              id, workspace_id, customer_id, direction, type, content, sent_at, created_at
-            ) VALUES (
-              ${messageId},
-              ${msg.workspace_id},
-              ${msg.customer_id},
-              'outbound',
-              'text',
-              ${msg.message},
-              CURRENT_TIMESTAMP,
-              CURRENT_TIMESTAMP
-            )
-          `;
+          if (isDryRun) {
+            console.log(`[CRON] DRY RUN: Would insert message ${messageId} and mark scheduled_message ${msg.id} as sent`);
+          } else {
+            await sql`
+              INSERT INTO messages (
+                id, workspace_id, customer_id, direction, type, content, sent_at, created_at
+              ) VALUES (
+                ${messageId},
+                ${msg.workspace_id},
+                ${msg.customer_id},
+                'outbound',
+                'text',
+                ${msg.message},
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+              )
+            `;
 
-          await sql`
-            UPDATE scheduled_messages
-            SET status = 'sent', updated_at = CURRENT_TIMESTAMP
-            WHERE id = ${msg.id}
-          `;
+            await sql`
+              UPDATE scheduled_messages
+              SET status = 'sent', updated_at = CURRENT_TIMESTAMP
+              WHERE id = ${msg.id}
+            `;
 
-          try {
-            await pusherServer.trigger(
-              `workspace-${msg.workspace_id}`,
-              'scheduled-message-sent',
-              {
-                scheduledMessageId: msg.id,
-                messageId,
-                customerId: msg.customer_id,
-                content: msg.message,
-                sentAt: new Date(),
-              }
-            );
-          } catch (err) {
-            console.error('[CRON] Pusher error:', err);
+            try {
+              await pusherServer.trigger(
+                `workspace-${msg.workspace_id}`,
+                'scheduled-message-sent',
+                {
+                  scheduledMessageId: msg.id,
+                  messageId,
+                  customerId: msg.customer_id,
+                  content: msg.message,
+                  sentAt: new Date(),
+                }
+              );
+            } catch (err) {
+              console.error('[CRON] Pusher error:', err);
+            }
           }
 
           processedMessages.push({ id: msg.id, status: 'sent' });
@@ -151,11 +163,15 @@ async function handler(request: NextRequest) {
       } catch (error) {
         console.error(`[CRON] Error processing ${msg.id}`, error);
 
-        await sql`
-          UPDATE scheduled_messages
-          SET status = 'error', error_message = ${String(error)}, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ${msg.id}
-        `;
+        if (isDryRun) {
+          console.log(`[CRON] DRY RUN: Would mark scheduled_message ${msg.id} as error. Reason: ${String(error)}`);
+        } else {
+          await sql`
+            UPDATE scheduled_messages
+            SET status = 'error', error_message = ${String(error)}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${msg.id}
+          `;
+        }
       }
     }
 
@@ -218,17 +234,21 @@ async function handler(request: NextRequest) {
           currentTier: tier,
         }).toISOString();
 
-        await sql`
-          INSERT INTO calendar_event_posts (
-            id, workspace_id, source_kind, festival_key, event_name, event_date,
-            post_title, caption, creative_svg, creative_preview_url, scheduled_for, status, engagement_status
-          )
-          VALUES (
-            ${postId}, ${workspace.id}, 'festival', ${festival.key}, ${festival.name}, ${todayKey},
-            ${creative.title}, ${creative.caption}, ${creative.creativeSvg},
-            ${buildCreativePreviewUrl(publicOrigin, postId)}, ${scheduledFor}, 'scheduled', 'scheduled'
-          )
-        `;
+        if (isDryRun) {
+          console.log(`[CRON] DRY RUN: Would seed festival post for workspace ${workspace.id}, festival ${festival.key}`);
+        } else {
+          await sql`
+            INSERT INTO calendar_event_posts (
+              id, workspace_id, source_kind, festival_key, event_name, event_date,
+              post_title, caption, creative_svg, creative_preview_url, scheduled_for, status, engagement_status
+            )
+            VALUES (
+              ${postId}, ${workspace.id}, 'festival', ${festival.key}, ${festival.name}, ${todayKey},
+              ${creative.title}, ${creative.caption}, ${creative.creativeSvg},
+              ${buildCreativePreviewUrl(publicOrigin, postId)}, ${scheduledFor}, 'scheduled', 'scheduled'
+            )
+          `;
+        }
         festivalSeeds.push({ workspaceId: workspace.id, key: festival.key });
       }
     }
@@ -244,7 +264,7 @@ async function handler(request: NextRequest) {
       JOIN users u ON w.owner_id = u.id
       WHERE p.status IN ('scheduled', 'failed')
         AND p.retry_count < 3
-        AND p.scheduled_for <= NOW()
+        AND (p.scheduled_for <= NOW() OR p.id = ${forcePostId || null})
       ORDER BY p.scheduled_for ASC
       LIMIT 100
     `;
@@ -260,64 +280,52 @@ async function handler(request: NextRequest) {
         const postOrigin = publicOrigin;
         const imageUrl = String(post.creative_preview_url || buildCreativePreviewUrl(postOrigin, post.id));
 
-        const credentialsRows = await sql`
-          SELECT instagram_business_account_id, instagram_access_token
-          FROM meta_apps
-          WHERE workspace_id = ${post.workspace_id}
-          ORDER BY is_default DESC, created_at ASC
-          LIMIT 1
-        `;
-        const credentials = credentialsRows?.[0] || {};
-        const businessAccountId = String(credentials.instagram_business_account_id || process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID || '').trim();
-        const accessToken = String(credentials.instagram_access_token || process.env.INSTAGRAM_ACCESS_TOKEN || '').trim();
+        let publishedPostId: string;
 
-        const container = await createInstagramMediaContainer({
-          businessAccountId,
-          accessToken,
-          imageUrl,
-          caption: post.caption,
-          apiVersion: process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v23.0',
-        });
-
-        if (!container.success || !container.containerId) {
-          throw new Error(container.error || 'Failed to create Instagram media container');
+        if (process.env.MOCK_INSTAGRAM === 'true') {
+          publishedPostId = `IGP_MOCK_${Date.now()}`;
+          console.log(`[CRON] MOCK POST: Bypassing actual Instagram API for post ${post.id}. Mock ID: ${publishedPostId}`);
+        } else {
+          publishedPostId = await publishInstagramImage(
+            post.workspace_id,
+            imageUrl,
+            post.caption
+          );
         }
 
-        const publish = await publishInstagramMediaContainer({
-          businessAccountId,
-          accessToken,
-          creationId: container.containerId,
-          apiVersion: process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v23.0',
-        });
-
-        if (!publish.success || !publish.postId) {
-          throw new Error(publish.error || 'Failed to publish Instagram media');
+        if (isDryRun) {
+          console.log(`[CRON] DRY RUN: Would update calendar post ${post.id} status to 'posted' with IG ID ${publishedPostId}`);
+        } else {
+          await sql`
+            UPDATE calendar_event_posts
+            SET
+              status = 'posted',
+              posted_at = CURRENT_TIMESTAMP,
+              instagram_post_id = ${publishedPostId},
+              engagement_status = 'posted',
+              failure_reason = NULL,
+              retry_count = 0,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${post.id}
+          `;
         }
-
-        await sql`
-          UPDATE calendar_event_posts
-          SET
-            status = 'posted',
-            posted_at = CURRENT_TIMESTAMP,
-            instagram_post_id = ${publish.postId},
-            engagement_status = 'posted',
-            failure_reason = NULL,
-            retry_count = 0,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = ${post.id}
-        `;
       } catch (error) {
         const nextRetryCount = Number(post.retry_count || 0) + 1;
-        await sql`
-          UPDATE calendar_event_posts
-          SET
-            status = ${nextRetryCount >= 3 ? 'failed' : post.status},
-            retry_count = ${nextRetryCount},
-            failure_reason = ${String(error)},
-            engagement_status = 'failed',
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = ${post.id}
-        `;
+
+        if (isDryRun) {
+          console.log(`[CRON] DRY RUN: Would mark calendar post ${post.id} as failed/retry (Attempt ${nextRetryCount}). Error: ${String(error)}`);
+        } else {
+          await sql`
+            UPDATE calendar_event_posts
+            SET
+              status = ${nextRetryCount >= 3 ? 'failed' : post.status},
+              retry_count = ${nextRetryCount},
+              failure_reason = ${String(error)},
+              engagement_status = 'failed',
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${post.id}
+          `;
+        }
         console.error('[CRON] Calendar post failed', {
           postId: post.id,
           workspaceId: post.workspace_id,
