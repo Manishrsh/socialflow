@@ -361,7 +361,12 @@ function findMatchingStartNode(
       }
     }
 
-    return null;
+    const messageStarters = starters.filter((node) => node.type === 'triggerMessage');
+    if (messageStarters.length > 0) {
+      return messageStarters[0];
+    }
+
+    return starters[0] || null;
   }
 
   for (const node of starters) {
@@ -452,6 +457,21 @@ function resolveExecutionPath(
   const startNode =
     (resumeNodeId && (hasReply || hasFlowResponse) && nodeById.get(resumeNodeId)) || matchedStartNode || fallbackStartNode;
   if (!startNode) return [];
+
+  console.log('[Workflow Execute] Execution path selection', {
+    starterCount: starters.length,
+    resumeNodeId: resumeNodeId || null,
+    hasReply,
+    hasFlowResponse,
+    matchedStartNodeId: matchedStartNode?.id || null,
+    matchedStartNodeType: matchedStartNode?.type || null,
+    fallbackStartNodeId: fallbackStartNode?.id || null,
+    startNodeId: startNode.id,
+    startNodeType: startNode.type || null,
+    replyId: currentReplyId || null,
+    replyTitle: currentReplyTitle || null,
+    incomingText: getIncomingText(variables) || null,
+  });
 
   const path: FlowNode[] = [];
   const visited = new Set<string>();
