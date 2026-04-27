@@ -424,7 +424,8 @@ function resolveExecutionOrder(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[]
 function resolveExecutionPath(
   nodes: FlowNode[],
   edges: FlowEdge[],
-  variables: Record<string, any> | undefined
+  variables: Record<string, any> | undefined,
+  context?: { workflowId?: string; workspaceId?: string }
 ): FlowNode[] {
   if (!nodes.length) return [];
 
@@ -565,6 +566,23 @@ function resolveExecutionPath(
         }
 
         if (target && nodeById.has(target)) {
+          console.log('[Workflow Execute] Interactive choice routed', {
+            workflowId: context?.workflowId || null,
+            workspaceId: context?.workspaceId || null,
+            nodeId: node.id,
+            replyId: currentReplyId || null,
+            replyTitle: currentReplyTitle || null,
+            targetNodeId: target,
+            targetNodeType: nodeById.get(target)?.type || null,
+            routeSource:
+              (currentReplyId && edgeButtonRoutes[currentReplyId]) ||
+              (currentReplyId && routes[currentReplyId]) ||
+              (currentReplyTitle &&
+                buttons.find((b) => normalizeChoiceText(b.title) === normalizeChoiceText(currentReplyTitle))
+                  ? 'title_match'
+                  : null) ||
+              'outgoing_fallback',
+          });
           if (resumeNodeId && node.id === resumeNodeId) {
             currentId = target;
             continue;
@@ -576,6 +594,15 @@ function resolveExecutionPath(
           continue;
         }
 
+        console.log('[Workflow Execute] Interactive choice unresolved', {
+          workflowId: context?.workflowId || null,
+          workspaceId: context?.workspaceId || null,
+          nodeId: node.id,
+          replyId: currentReplyId || null,
+          replyTitle: currentReplyTitle || null,
+          buttons: buttons.map((button) => ({ id: button.id, title: button.title })),
+          outgoingTargets,
+        });
         path.push(node);
         break;
       }
@@ -697,7 +724,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const edges = toArray(workflow.edges) as FlowEdge[];
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const orderedNodes = resolveExecutionOrder(nodes, edges);
-    const executionNodes = resolveExecutionPath(nodes, edges, variables || {});
+    const executionNodes = resolveExecutionPath(nodes, edges, variables || {}, {
+      workflowId: id,
+      workspaceId,
+    });
     const shouldStopAfterFirstAction =
       !String(variables?.resumeNodeId || '').trim() &&
       (executionNodes[0]?.type === 'triggerMessage' || executionNodes[0]?.type === 'triggerKeyword');
