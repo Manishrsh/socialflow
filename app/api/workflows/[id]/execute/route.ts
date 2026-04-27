@@ -498,11 +498,15 @@ function resolveExecutionPath(
       currentId = targetMenuNodeId;
       continue;
     }
-    if (node.type === 'triggerKeyword' && !keywordNodeMatches(node, variables)) {
+    const isTriggerNode = String(node.type || '').startsWith('trigger');
+    if (isTriggerNode && node.id !== startNode.id) {
+      break;
+    }
+    if (node.type === 'triggerKeyword' && node.id === startNode.id && !keywordNodeMatches(node, variables)) {
       return [];
     }
     if (node.type === 'logicCondition' && !conditionNodeMatches(node, variables)) {
-      return [];
+      break;
     }
     if (node.type === 'actionSendMessage') {
       const data = node.data || {};
