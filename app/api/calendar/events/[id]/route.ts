@@ -51,6 +51,7 @@ async function createEventPost(input: {
   eventName: string;
   eventDate: string;
   eventType: string;
+  scheduledTime?: string;
   logoUrl: string | null;
   branding: ReturnType<typeof getBrandingSettings>;
   requestOrigin: string;
@@ -70,10 +71,11 @@ async function createEventPost(input: {
   });
   const scheduledFor = input.isEnabled
     ? resolveScheduleTime({
-        eventDate: input.eventDate,
-        repeatYearly: input.repeatYearly,
-        eventType: input.eventType,
-      }).toISOString()
+      eventDate: input.eventDate,
+      scheduledTime: input.scheduledTime,
+      repeatYearly: input.repeatYearly,
+      eventType: input.eventType,
+    }).toISOString()
     : null;
 
   const previewUrl = buildCreativePreviewUrl(input.requestOrigin, postId);
@@ -110,6 +112,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const workspaceId = String(body?.workspaceId || '').trim();
     const name = String(body?.eventName || '').trim();
     const eventDate = String(body?.eventDate || '').trim();
+    const eventTime = String(body?.eventTime || '').trim();
     const eventType = String(body?.eventType || 'Custom').trim();
     const repeatYearly = typeof body?.repeatYearly === 'boolean' ? !!body?.repeatYearly : undefined;
     const logoUrl = typeof body?.logoUrl === 'string' ? String(body.logoUrl || '').trim() : undefined;
@@ -124,7 +127,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!workspace) return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
 
     const existingRows = await sql`
-      SELECT id, name, event_date, event_type, repeat_yearly, logo_url, notes, is_enabled
+      SELECT id, name, event_date, event_type, repeat_yearly, logo_url, notes, scheduled_time, is_enabled
       FROM calendar_events
       WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL
       LIMIT 1
@@ -140,6 +143,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       repeatYearly: typeof repeatYearly === 'boolean' ? repeatYearly : !!existing.repeat_yearly,
       logoUrl: typeof logoUrl === 'string' ? logoUrl : existing.logo_url || null,
       notes: typeof notes === 'string' ? notes : existing.notes || null,
+      scheduledTime: eventTime || existing.scheduled_time || '10:00',
       isEnabled: typeof isEnabled === 'boolean' ? isEnabled : !!existing.is_enabled,
     };
 
@@ -152,6 +156,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         repeat_yearly = ${nextEvent.repeatYearly},
         logo_url = ${nextEvent.logoUrl || null},
         notes = ${nextEvent.notes || null},
+        scheduled_time = ${nextEvent.scheduledTime},
         is_enabled = ${nextEvent.isEnabled},
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id} AND workspace_id = ${workspaceId}
@@ -171,6 +176,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         eventName: nextEvent.name,
         eventDate: nextEvent.eventDate,
         eventType: nextEvent.eventType,
+        scheduledTime: nextEvent.scheduledTime,
         logoUrl: nextEvent.logoUrl,
         branding: currentBranding,
         requestOrigin: getPublicOrigin(request),
@@ -188,16 +194,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     `;
     const latestPost = post
       ? {
-          status: 'scheduled',
-          scheduled_for: post.scheduledFor,
-          posted_at: null,
-          instagram_post_id: null,
-          engagement_status: 'scheduled',
-          failure_reason: null,
-          creative_preview_url: post.previewUrl,
-          caption: post.caption,
-          post_title: post.title,
-        }
+        status: 'scheduled',
+        scheduled_for: post.scheduledFor,
+        posted_at: null,
+        instagram_post_id: null,
+        engagement_status: 'scheduled',
+        failure_reason: null,
+        creative_preview_url: post.previewUrl,
+        caption: post.caption,
+        post_title: post.title,
+      }
       : latestPostRows?.[0] || null;
 
     return NextResponse.json({
@@ -222,17 +228,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         notes: nextEvent.notes || null,
         post: latestPost
           ? {
-              id: post?.postId || latestPost.id || null,
-              status: latestPost.status || 'draft',
-              scheduledFor: latestPost.scheduled_for || null,
-              postedAt: latestPost.posted_at || null,
-              instagramPostId: latestPost.instagram_post_id || null,
-              engagementStatus: latestPost.engagement_status || 'pending',
-              failureReason: latestPost.failure_reason || null,
-              creativePreviewUrl: latestPost.creative_preview_url || null,
-              caption: latestPost.caption || '',
-              postTitle: latestPost.post_title || '',
-            }
+            id: post?.postId || latestPost.id || null,
+            status: latestPost.status || 'draft',
+            scheduledFor: latestPost.scheduled_for || null,
+            postedAt: latestPost.posted_at || null,
+            instagramPostId: latestPost.instagram_post_id || null,
+            engagementStatus: latestPost.engagement_status || 'pending',
+            failureReason: latestPost.failure_reason || null,
+            creativePreviewUrl: latestPost.creative_preview_url || null,
+            caption: latestPost.caption || '',
+            postTitle: latestPost.post_title || '',
+          }
           : null,
       },
     });

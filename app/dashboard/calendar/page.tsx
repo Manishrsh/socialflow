@@ -27,6 +27,7 @@ interface CalendarEventItem {
   labelColor: 'green' | 'blue';
   logoUrl?: string | null;
   customImageUrl?: string | null;
+  scheduledTime?: string | null;
   notes?: string | null;
   post?: {
     id: string;
@@ -137,6 +138,7 @@ export default function CalendarPage() {
   const [formState, setFormState] = useState({
     eventName: '',
     eventDate: format(new Date(), 'yyyy-MM-dd'),
+    eventTime: '10:00',
     eventType: 'Anniversary',
     repeatYearly: false,
     isEnabled: false,
@@ -199,6 +201,7 @@ export default function CalendarPage() {
       setFormState({
         eventName: editingEvent.name,
         eventDate: format(new Date(editingEvent.eventDate), 'yyyy-MM-dd'),
+        eventTime: editingEvent.scheduledTime || '10:00',
         eventType: editingEvent.eventType || 'Custom',
         repeatYearly: editingEvent.repeatYearly,
         isEnabled: editingEvent.isEnabled,
@@ -214,6 +217,7 @@ export default function CalendarPage() {
     setFormState({
       eventName: '',
       eventDate: format(new Date(), 'yyyy-MM-dd'),
+      eventTime: '10:00',
       eventType: 'Anniversary',
       repeatYearly: false,
       isEnabled: false,
@@ -325,6 +329,7 @@ export default function CalendarPage() {
         workspaceId: workspace.id,
         eventName: formState.eventName,
         eventDate: formState.eventDate,
+        eventTime: formState.eventTime,
         eventType: formState.eventType,
         repeatYearly: formState.repeatYearly,
         isEnabled: formState.isEnabled,
@@ -567,7 +572,7 @@ export default function CalendarPage() {
               <Eye className="h-5 w-5 text-foreground/40" />
             </div>
             <div className="space-y-3">
-              {(postsData?.upcomingPosts || []).slice(0, 5).map((post) => (
+              {(postsData?.upcomingPosts || []).slice(0, 10).map((post) => (
                 <div key={post.id} className="rounded-2xl border p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -682,7 +687,7 @@ export default function CalendarPage() {
             <Badge variant="outline">{calendar?.customEventCount || 0}/{customEventLimitLabel}</Badge>
           </div>
           <div className="space-y-3">
-            {events.filter((event) => event.sourceKind === 'custom').slice(0, 5).map((event) => (
+            {events.filter((event) => event.sourceKind === 'custom').slice(0, 10).map((event) => (
               <div key={event.id} className="rounded-2xl border p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -746,6 +751,14 @@ export default function CalendarPage() {
               <div>
                 <label className="mb-2 block text-sm font-medium">Event Date</label>
                 <Input type="date" value={formState.eventDate} onChange={(e) => setFormState({ ...formState, eventDate: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium">Posting Time (IST)</label>
+                <Input type="time" value={formState.eventTime} onChange={(e) => setFormState({ ...formState, eventTime: e.target.value })} />
+                <div className="mt-1 text-xs text-foreground/60">Indian Standard Time (UTC+5:30)</div>
               </div>
             </div>
 

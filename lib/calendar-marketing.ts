@@ -101,7 +101,7 @@ export const CALENDAR_FESTIVALS: FestivalDefinition[] = [
 ];
 
 export const PLAN_LIMITS: Record<CalendarPlanTier, { customEvents: number; festivalMode: 'limited' | 'all'; advancedBranding: boolean }> = {
-  basic: { customEvents: 5, festivalMode: 'limited', advancedBranding: false },
+  basic: { customEvents: 10, festivalMode: 'limited', advancedBranding: false },
   pro: { customEvents: 10, festivalMode: 'all', advancedBranding: false },
   business: { customEvents: Number.POSITIVE_INFINITY, festivalMode: 'all', advancedBranding: true },
 };
@@ -273,6 +273,7 @@ export function buildCaption(input: {
 
 export function resolveScheduleTime(input: {
   eventDate: string;
+  scheduledTime?: string;
   repeatYearly?: boolean;
   eventType: string;
   currentTier?: CalendarPlanTier;
@@ -281,13 +282,8 @@ export function resolveScheduleTime(input: {
   const now = new Date();
   let schedule = new Date(sourceDate);
   const type = String(input.eventType || '').trim().toLowerCase();
-  const hoursByType: Record<string, number> = {
-    anniversary: 10,
-    sale: 11,
-    custom: 10,
-    festival: 9,
-  };
-  const hour = hoursByType[type] ?? 10;
+
+  const [hours, minutes] = (input.scheduledTime || '10:00').split(':').map(Number);
 
   if (input.repeatYearly) {
     const eventThisYear = new Date(now.getFullYear(), sourceDate.getMonth(), sourceDate.getDate());
@@ -298,16 +294,14 @@ export function resolveScheduleTime(input: {
     const daysInMonth = getDaysInMonth(new Date(targetYear, sourceDate.getMonth(), 1));
     const recurringDay = Math.min(sourceDate.getDate(), daysInMonth);
     schedule = new Date(targetYear, sourceDate.getMonth(), recurringDay);
+
+    if (isBefore(schedule, now)) {
+      schedule.setTime(now.getTime() + 15 * 60 * 1000);
+    }
   }
 
-  if (isBefore(schedule, now)) {
-    schedule.setTime(now.getTime() + 15 * 60 * 1000);
-  }
-
-  schedule.setHours(hour, input.currentTier === 'business' ? 15 : 0, 0, 0);
-  if (isBefore(schedule, now)) {
-    schedule.setTime(now.getTime() + 15 * 60 * 1000);
-  }
+  // Set time in IST (UTC+5:30)
+  schedule.setHours(hours || 10, minutes || 0, 0, 0);
   return schedule;
 }
 

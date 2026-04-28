@@ -131,6 +131,7 @@ function buildMonthCustomEventRows(input: {
         labelColor: 'blue' as const,
         logoUrl: event.logo_url || null,
         customImageUrl: event.custom_image_url || null,
+        scheduledTime: event.scheduled_time || '10:00',
         notes: event.notes || null,
         post: mapPostSummary(post),
       };
@@ -189,6 +190,7 @@ async function createEventPost(input: {
   eventName: string;
   eventDate: string;
   eventType: string;
+  scheduledTime?: string;
   sourceKind: 'custom';
   logoUrl: string | null;
   customImageUrl?: string | null;
@@ -212,6 +214,7 @@ async function createEventPost(input: {
   const scheduledFor = input.isEnabled
     ? resolveScheduleTime({
       eventDate: input.eventDate,
+      scheduledTime: input.scheduledTime,
       repeatYearly: input.repeatYearly,
       eventType: input.eventType,
     }).toISOString()
@@ -371,6 +374,7 @@ export async function POST(request: NextRequest) {
     const workspaceId = String(body?.workspaceId || '').trim();
     const name = String(body?.eventName || '').trim();
     const eventDate = String(body?.eventDate || '').trim();
+    const eventTime = String(body?.eventTime || '10:00').trim();
     const eventType = String(body?.eventType || 'Custom').trim();
     const repeatYearly = !!body?.repeatYearly;
     const logoUrl = String(body?.logoUrl || '').trim();
@@ -419,11 +423,11 @@ export async function POST(request: NextRequest) {
     const eventId = uuidv4();
     await sql`
       INSERT INTO calendar_events (
-        id, workspace_id, name, event_date, event_type, repeat_yearly, logo_url, custom_image_url, notes, is_enabled, created_by
+        id, workspace_id, name, event_date, event_type, repeat_yearly, logo_url, custom_image_url, notes, scheduled_time, is_enabled, created_by
       )
       VALUES (
         ${eventId}, ${workspaceId}, ${name}, ${eventDate}, ${eventType}, ${repeatYearly},
-        ${logoUrl || null}, ${customImageUrl || null}, ${notes || null}, ${isEnabled}, ${userId}
+        ${logoUrl || null}, ${customImageUrl || null}, ${notes || null}, ${eventTime}, ${isEnabled}, ${userId}
       )
     `;
 
@@ -434,6 +438,7 @@ export async function POST(request: NextRequest) {
         eventName: name,
         eventDate,
         eventType,
+        scheduledTime: eventTime,
         sourceKind: 'custom',
         logoUrl: logoUrl || null,
         customImageUrl: customImageUrl || null,
