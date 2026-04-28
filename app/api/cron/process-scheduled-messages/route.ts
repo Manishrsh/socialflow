@@ -101,7 +101,10 @@ async function handler(request: NextRequest) {
 
           shouldSendNow = now >= actualScheduledTime;
         } else {
-          shouldSendNow = now >= actualScheduledTime;
+          // Compare only the day, ignoring exact time
+          const scheduledDateOnly = actualScheduledTime.toISOString().slice(0, 10);
+          const nowDateOnly = now.toISOString().slice(0, 10);
+          shouldSendNow = scheduledDateOnly <= nowDateOnly;
         }
 
         const isWithin24Hours = timeSinceLastMessage < twentyFourHoursMs;
@@ -264,7 +267,7 @@ async function handler(request: NextRequest) {
       JOIN users u ON w.owner_id = u.id
       WHERE p.status IN ('scheduled', 'failed')
         AND p.retry_count < 3
-        AND (p.scheduled_for <= NOW() OR p.id = ${forcePostId || null})
+        AND (DATE(p.scheduled_for) <= CURRENT_DATE OR p.id = ${forcePostId || null})
       ORDER BY p.scheduled_for ASC
       LIMIT 100
     `;

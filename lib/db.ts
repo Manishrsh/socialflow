@@ -622,6 +622,16 @@ export async function ensureCoreSchema(): Promise<void> {
       )
     `;
 
+    // Add scheduled_time column if it doesn't exist (migration)
+    try {
+      await sql`
+        ALTER TABLE calendar_events
+        ADD COLUMN IF NOT EXISTS scheduled_time VARCHAR(5) DEFAULT '10:00'
+      `;
+    } catch (e) {
+      // Column may already exist or other error - continue
+    }
+
     await sql`
       CREATE INDEX IF NOT EXISTS idx_calendar_events_workspace_date
       ON calendar_events(workspace_id, event_date, is_enabled)
